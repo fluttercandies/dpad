@@ -48,7 +48,7 @@
 
 ```yaml
 dependencies:
-  dpad: ^1.0.0
+  dpad: any
 ```
 
 ### 2. Wrap Your App
