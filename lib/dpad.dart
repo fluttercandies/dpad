@@ -1,77 +1,125 @@
-/// Flutter D-pad Navigation System for TV Apps
+/// Flutter TV D-pad Navigation System
 ///
 /// A simple yet powerful D-pad navigation system that makes Flutter development
 /// for Android TV, Fire TV, and other TV platforms as easy as native Android development.
+/// 
+/// **Quick Setup - Just 3 Steps:**
+/// 1. Wrap your app with [DpadNavigator] - Enables global D-pad support
+/// 2. Wrap focusable widgets with [DpadFocusable] - Makes widgets respond to D-pad navigation
+/// 3. Customize focus effects - Use the builder pattern for completely custom focus appearances
 ///
-/// ## Quick Start
-///
-/// Setting up D-pad navigation takes just three steps:
-///
-/// 1. **Wrap your app with DpadNavigator** - This enables global D-pad support
-/// 2. **Wrap focusable widgets with DpadFocusable** - Makes widgets respond to D-pad navigation
-/// 3. **Customize focus effects** - Use the builder pattern for completely custom focus appearances
-///
-/// ## Basic Example
-///
+/// **Example Usage:**
 /// ```dart
 /// import 'package:dpad/dpad.dart';
 ///
 /// void main() {
 ///   runApp(DpadNavigator(
-///     child: MyApp(),
+///     enabled: true,
+///     customShortcuts: {
+///       LogicalKeyboardKey.keyG: () => print('Grid view'),
+///       LogicalKeyboardKey.keyL: () => print('List view'),
+///     },
+///     onMenuPressed: () => print('Menu pressed'),
+///     onBackPressed: () => print('Back pressed'),
+///     child: MaterialApp(
+///       theme: ThemeData.dark(),
+///       home: MyScreen(),
+///     ),
 ///   ));
 /// }
 ///
 /// class MyScreen extends StatelessWidget {
 ///   @override
 ///   Widget build(BuildContext context) {
-///     return Column(
-///       children: [
-///         // Custom focus effect with border highlight
-///         DpadFocusable(
-///           autofocus: true,
-///           onFocus: () => print('Got focus'),
-///           onSelect: () => print('Selected'),
-///           builder: (context, isFocused, child) {
-///             return AnimatedContainer(
-///               duration: Duration(milliseconds: 200),
-///               decoration: BoxDecoration(
-///                 border: Border.all(
-///                   color: isFocused ? Colors.blue : Colors.transparent,
-///                   width: 3,
-///                 ),
-///                 borderRadius: BorderRadius.circular(8),
+///     return Scaffold(
+///       body: Padding(
+///         padding: EdgeInsets.all(32),
+///         child: Column(
+///           children: [
+///             // Custom focus effect with border highlight
+///             DpadFocusable(
+///               autofocus: true,
+///               onFocus: () => print('Button 1 focused'),
+///               onSelect: () => print('Button 1 selected'),
+///               builder: (context, isFocused, child) {
+///                 return AnimatedContainer(
+///                   duration: Duration(milliseconds: 200),
+///                   decoration: BoxDecoration(
+///                     border: Border.all(
+///                       color: isFocused ? Colors.blue : Colors.transparent,
+///                       width: 3,
+///                     ),
+///                     borderRadius: BorderRadius.circular(8),
+///                   ),
+///                   child: child,
+///                 );
+///               },
+///               child: ElevatedButton(
+///                 onPressed: () => print('Button 1 pressed'),
+///                 child: Text('Button 1'),
 ///               ),
-///               child: child,
-///             );
-///           },
-///           child: ElevatedButton(
-///             onPressed: () => print('Button 1 pressed'),
-///             child: Text('Button 1'),
-///           ),
-///         ),
+///             ),
 ///
-///         // Default focus effect (simple border)
-///         DpadFocusable(
-///           onFocus: () => print('Button 2 focused'),
-///           onSelect: () => print('Button 2 selected'),
-///           child: ElevatedButton(
-///             onPressed: () => print('Button 2 pressed'),
-///             child: Text('Button 2'),
-///           ),
+///             // Using built-in glow effect
+///             DpadFocusable(
+///               onFocus: () => print('Button 2 focused'),
+///               onSelect: () => print('Button 2 selected'),
+///               builder: FocusEffects.glow(
+///                 glowColor: Colors.green,
+///                 blurRadius: 15.0,
+///               ),
+///               child: ElevatedButton(
+///                 onPressed: () => print('Button 2 pressed'),
+///                 child: Text('Button 2'),
+///               ),
+///             ),
+///
+///             // Default focus effect (simple border)
+///             DpadFocusable(
+///               onFocus: () => print('Button 3 focused'),
+///               onSelect: () => print('Button 3 selected'),
+///               child: ElevatedButton(
+///                 onPressed: () => print('Button 3 pressed'),
+///                 child: Text('Button 3'),
+///               ),
+///             ),
+///           ],
 ///         ),
-///       ],
+///       ),
 ///     );
 ///   }
 /// }
 /// ```
 ///
-/// ## Advanced Features
+/// **Key Features:**
+/// - 🎯 Simple 3-step setup process
+/// - 🎨 8+ built-in focus effects with unlimited customization
+/// - 📱 Full platform support (Android TV, Fire TV, Apple TV, Game Controllers)
+/// - ⚡ Optimized for smooth navigation performance
+/// - 🔧 Complete programmatic control API
+/// - 🎮 Game controller support out of the box
+/// - 🔧 Custom keyboard shortcuts support
+/// - 🎨 Custom focus effect builders
 ///
-/// ### Custom Focus Effects
+/// **Platform Support:**
+/// - **Android TV**: Full native D-pad and remote control support
+/// - **Amazon Fire TV**: Compatible with all Fire TV remotes
+/// - **Apple TV**: Works with Siri Remote (Flutter web)
+/// - **Game Controllers**: Standard D-pad and button navigation
+/// - **Generic TV Platforms**: Any D-pad compatible input device
 ///
-/// Create any focus effect you can imagine with the builder pattern:
+/// **Built-in Focus Effects:**
+/// - [FocusEffects.border] - Simple colored border highlight
+/// - [FocusEffects.glow] - Shadow/glow effect around focused widget
+/// - [FocusEffects.scale] - Scale animation when focused
+/// - [FocusEffects.gradient] - Gradient background change
+/// - [FocusEffects.elevation] - Material design elevation effect
+/// - [FocusEffects.scaleWithBorder] - Combined scale and border
+/// - [FocusEffects.opacity] - Opacity change on focus
+/// - [FocusEffects.colorTint] - Color overlay effect
+/// - [FocusEffects.combine] - Multiple effects combined
 ///
+/// **Custom Focus Effect Example:**
 /// ```dart
 /// DpadFocusable(
 ///   builder: (context, isFocused, child) {
@@ -92,22 +140,20 @@
 ///       ),
 ///     );
 ///   },
-///   child: Container(
-///     child: Text('Custom Focus Effect'),
+///   child: ElevatedButton(
+///     onPressed: () => print('Button pressed'),
+///     child: Text('Custom Effect Button'),
 ///   ),
 /// )
 /// ```
 ///
-/// ### Programmatic Navigation
-///
-/// Use Dpad for programmatic focus control:
-///
+/// **Programmatic Navigation:**
 /// ```dart
 /// // Navigate in specific directions
-/// Dpad.navigateUp();
-/// Dpad.navigateDown();
-/// Dpad.navigateLeft();
-/// Dpad.navigateRight();
+/// Dpad.navigateUp(context);
+/// Dpad.navigateDown(context);
+/// Dpad.navigateLeft(context);
+/// Dpad.navigateRight(context);
 ///
 /// // Focus management
 /// final currentFocus = Dpad.currentFocus;
@@ -115,10 +161,7 @@
 /// Dpad.clearFocus();
 /// ```
 ///
-/// ### Custom Shortcuts and Actions
-///
-/// Add custom keyboard shortcuts to your DpadNavigator:
-///
+/// **Custom Shortcuts Example:**
 /// ```dart
 /// DpadNavigator(
 ///   customShortcuts: {
@@ -133,41 +176,22 @@
 /// )
 /// ```
 ///
-/// ## Platform Support
-///
-/// - **Android TV**: Full native D-pad support
-/// - **Amazon Fire TV**: Compatible with Fire TV remotes
-/// - **Apple TV**: Works with Siri Remote (Flutter web)
-/// - **Game Controllers**: Standard controller navigation
-/// - **Generic TV Platforms**: Any D-pad compatible input
-///
-/// ## Best Practices
-///
-/// 1. **Always set autofocus** on one widget per screen to ensure initial focus
-/// 2. **Test with real D-pad** hardware, not just keyboard arrows
-/// 3. **Consider focus order** - arrange widgets logically for navigation
-/// 4. **Provide visual feedback** - use clear focus indicators
-/// 5. **Handle edge cases** - what happens when navigation fails?
-///
-/// ## Architecture
-///
+/// **Architecture:**
 /// The system consists of three main components:
+/// - **[DpadNavigator]**: Root widget that captures D-pad events and handles global navigation
+/// - **[DpadFocusable]**: Wrapper that makes any widget focusable with custom effects
+/// - **[Dpad]**: Utility class for programmatic focus control and navigation
+/// - **[FocusEffects]**: Collection of built-in focus effects for common use cases
 ///
-/// - **[DpadNavigator]**: Root widget that captures D-pad events
-/// - **[DpadFocusable]**: Wrapper that makes widgets focusable
-/// - **[Dpad]**: Utility class for programmatic control
+/// All components work seamlessly together with Flutter's native focus system.
 ///
-/// All components work together seamlessly with Flutter's focus system.
-///
-/// ## Migration from Other Solutions
-///
+/// **Migration from Other Solutions:**
 /// If you're coming from other TV navigation libraries:
-///
-/// - No complex configuration needed
-/// - Works with standard Flutter widgets
-/// - No custom FocusNode management required
-/// - Built-in support for all TV platforms
-/// - Extensive customization options
+/// - ✅ No complex configuration needed
+/// - ✅ Works with standard Flutter widgets
+/// - ✅ No custom FocusNode management required
+/// - ✅ Built-in support for all TV platforms
+/// - ✅ Extensive customization options
 ///
 /// For complete API documentation, see the individual component files.
 

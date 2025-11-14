@@ -1,10 +1,36 @@
-# Dpad - Flutter TV 导航系统
+<h1 align="center">
+  📺 Dpad
+  <br>
+  <span style="font-size: 0.6em; font-weight: normal;">Flutter TV 导航系统</span>
+</h1>
 
-[![Pub Version](https://img.shields.io/pub/v/dpad.svg)](https://pub.dev/packages/dpad)
-[![Platform](https://img.shields.io/badge/platform-android%20tv%20%7C%20fire%20tv%20%7C%20apple%20tv-blue.svg)](https://github.com/fluttercandies/dpad)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/fluttercandies/dpad/blob/main/LICENSE)
+<p align="center">
+  <a href="README.md">
+    <img src="https://img.shields.io/badge/📖-文档切换-red.svg" alt="English">
+  </a>
+</p>
 
+<p align="center">
+  <img src="dpad.png" alt="Dpad Logo" width="200">
+</p>
+
+<br>
+
+<p align="center">
+  <a href="https://pub.dev/packages/dpad">
+    <img src="https://img.shields.io/pub/v/dpad.svg" alt="Pub Version">
+  </a>
+  <a href="https://github.com/fluttercandies/dpad">
+    <img src="https://img.shields.io/badge/platform-android%20tv%20%7C%20fire%20tv%20%7C%20apple%20tv-blue.svg" alt="Platform">
+  </a>
+  <a href="https://github.com/fluttercandies/dpad/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License">
+  </a>
+</p>
+
+<div align="center" style="padding: 20px; max-width: 600px; margin: 0 auto; text-align: center;">
 一个简单而强大的方向键导航系统，让 Flutter 在 Android TV、Fire TV 和其他电视平台的开发变得像原生 Android 开发一样简单。
+</div>
 
 ## ✨ 特性
 
