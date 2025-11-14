@@ -40,6 +40,7 @@
 - ⚡ **Performance**: Optimized for smooth navigation
 - 🔧 **Programmatic Control**: Full API for programmatic navigation
 - 🎮 **Game Controller Support**: Works with standard controllers
+- 🔄 **Sequential Navigation**: Previous/Next support for media and lists
 
 ## 🚀 Quick Start
 
@@ -198,6 +199,15 @@ DpadNavigator(
 )
 ```
 
+**Default Keyboard Shortcuts (v1.1.0+):**
+- **Arrow Keys**: Directional navigation (up, down, left, right)
+- **Tab/Shift+Tab**: Sequential navigation (next/previous)
+- **Media Track Next/Previous**: Media control navigation
+- **Channel Up/Down**: TV remote sequential navigation
+- **Enter/Select/Space**: Trigger selection action
+- **Escape/Back**: Navigate back
+- **ContextMenu**: Show menu
+
 ### Programmatic Navigation
 
 ```dart
@@ -206,6 +216,10 @@ Dpad.navigateUp(context);
 Dpad.navigateDown(context);
 Dpad.navigateLeft(context);
 Dpad.navigateRight(context);
+
+// Sequential navigation (new in v1.1.0)
+Dpad.navigateNext(context);      // Tab / Media Track Next
+Dpad.navigatePrevious(context);   // Shift+Tab / Media Track Previous
 
 // Focus management
 final currentFocus = Dpad.currentFocus;

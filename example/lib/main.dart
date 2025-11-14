@@ -6,6 +6,11 @@ void main() {
   runApp(
     DpadNavigator(
       enabled: true,
+      customShortcuts: {
+        // Add custom shortcuts for sequential navigation demo
+        LogicalKeyboardKey.keyN: () => debugPrint('Next button pressed'),
+        LogicalKeyboardKey.keyP: () => debugPrint('Previous button pressed'),
+      },
       child: MaterialApp(
         theme: ThemeData.dark(),
         debugShowCheckedModeBanner: false,
@@ -52,8 +57,27 @@ class SimpleDpad extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                ElevatedButton(
+                  onPressed: () {
+                    Dpad.navigatePrevious(context);
+                  },
+                  child: const Text('Previous\n(Tab+Shift)'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    Dpad.navigateNext(context);
+                  },
+                  child: const Text('Next\n(Tab)'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
             const Text(
-              'Use arrow keys to navigate, Enter to select',
+              'Use arrow keys to navigate, Enter to select\nTab/Shift+Tab for sequential navigation',
+              textAlign: TextAlign.center,
               style: TextStyle(
                 color: Colors.white54,
                 fontSize: 16,
