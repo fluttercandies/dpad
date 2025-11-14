@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2025-11-14
+
+### Added
+- Sequential navigation support with `navigateNext()` and `navigatePrevious()` methods
+- Default keyboard shortcuts for sequential navigation:
+  - Tab/Shift+Tab for next/previous navigation
+  - Media Track Next/Previous for media control
+  - Channel Up/Down for TV remote sequential navigation
+- Enhanced documentation for sequential navigation use cases
+
+### Features
+- Logical focus traversal order navigation (independent of spatial positioning)
+- Media player control support
+- Form field sequential navigation
+- List and grid item navigation
+- TV remote channel button support
+
 ## [1.0.0] - 2025-11-14
 
 ### Added

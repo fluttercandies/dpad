@@ -151,12 +151,15 @@ class DpadNavigator extends StatelessWidget {
   /// 
   /// **Default Shortcuts:**
   /// - Arrow keys: Navigate focus in respective directions
+  /// - Tab/Shift+Tab: Navigate to next/previous in focus order
+  /// - Media Track Next/Previous: Sequential navigation
+  /// - Channel Up/Down: TV remote sequential navigation
   /// - Enter/Select/Space: Trigger selection action
   /// 
   /// Returns a map of [ShortcutActivator] to [VoidCallback] pairs.
   Map<ShortcutActivator, VoidCallback> _buildBindings() {
     final bindings = <ShortcutActivator, VoidCallback>{
-      // Navigation controls
+      // Directional navigation controls
       const SingleActivator(LogicalKeyboardKey.arrowUp): () =>
           _navigate(TraversalDirection.up),
       const SingleActivator(LogicalKeyboardKey.arrowDown): () =>
@@ -165,6 +168,14 @@ class DpadNavigator extends StatelessWidget {
           _navigate(TraversalDirection.left),
       const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
           _navigate(TraversalDirection.right),
+      
+      // Sequential navigation controls
+      const SingleActivator(LogicalKeyboardKey.tab): () => _navigateNext(),
+      const SingleActivator(LogicalKeyboardKey.tab, shift: true): () => _navigatePrevious(),
+      const SingleActivator(LogicalKeyboardKey.mediaTrackNext): () => _navigateNext(),
+      const SingleActivator(LogicalKeyboardKey.mediaTrackPrevious): () => _navigatePrevious(),
+      const SingleActivator(LogicalKeyboardKey.channelUp): () => _navigateNext(),
+      const SingleActivator(LogicalKeyboardKey.channelDown): () => _navigatePrevious(),
       
       // Selection controls
       const SingleActivator(LogicalKeyboardKey.enter): () => _selectCurrent(),
@@ -211,5 +222,29 @@ class DpadNavigator extends StatelessWidget {
     final currentFocus = FocusManager.instance.primaryFocus;
     // Consume the keyboard token to trigger the selection action
     currentFocus?.consumeKeyboardToken();
+  }
+
+  /// Navigates to the next widget in the focus traversal order.
+  /// 
+  /// This method follows the logical focus order rather than spatial positioning,
+  /// making it ideal for sequential navigation like media controls, lists,
+  /// or form fields. Uses Flutter's native nextFocus() method.
+  void _navigateNext() {
+    final currentContext = FocusManager.instance.primaryFocus?.context;
+    if (currentContext != null) {
+      FocusScope.of(currentContext).nextFocus();
+    }
+  }
+
+  /// Navigates to the previous widget in the focus traversal order.
+  /// 
+  /// This method follows the logical focus order in reverse, making it ideal
+  /// for sequential navigation like media controls, lists, or form fields.
+  /// Uses Flutter's native previousFocus() method.
+  void _navigatePrevious() {
+    final currentContext = FocusManager.instance.primaryFocus?.context;
+    if (currentContext != null) {
+      FocusScope.of(currentContext).previousFocus();
+    }
   }
 }

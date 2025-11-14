@@ -174,4 +174,50 @@ class Dpad {
   /// ```
   static bool navigateRight(BuildContext context) =>
       navigateInDirection(TraversalDirection.right, context);
+
+  /// Navigates focus to the next widget in the focus traversal order.
+  /// 
+  /// This method follows the logical focus order rather than spatial positioning,
+  /// making it ideal for sequential navigation like media controls, lists,
+  /// or form fields. Equivalent to pressing the Tab key.
+  /// 
+  /// **Parameters:**
+  /// - [context]: The BuildContext to use for focus navigation
+  /// 
+  /// **Returns:** `true` if navigation to the next widget was successful
+  /// 
+  /// **Example:**
+  /// ```dart
+  /// // Handle media next button
+  /// Dpad.navigateNext(context);
+  /// 
+  /// // Navigate to next form field
+  /// Dpad.navigateNext(context);
+  /// ```
+  static bool navigateNext(BuildContext context) {
+    return FocusScope.of(context).nextFocus();
+  }
+
+  /// Navigates focus to the previous widget in the focus traversal order.
+  /// 
+  /// This method follows the logical focus order in reverse, making it ideal
+  /// for sequential navigation like media controls, lists, or form fields.
+  /// Equivalent to pressing Shift+Tab.
+  /// 
+  /// **Parameters:**
+  /// - [context]: The BuildContext to use for focus navigation
+  /// 
+  /// **Returns:** `true` if navigation to the previous widget was successful
+  /// 
+  /// **Example:**
+  /// ```dart
+  /// // Handle media previous button
+  /// Dpad.navigatePrevious(context);
+  /// 
+  /// // Navigate to previous form field
+  /// Dpad.navigatePrevious(context);
+  /// ```
+  static bool navigatePrevious(BuildContext context) {
+    return FocusScope.of(context).previousFocus();
+  }
 }

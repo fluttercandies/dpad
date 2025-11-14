@@ -155,6 +155,10 @@
 /// Dpad.navigateLeft(context);
 /// Dpad.navigateRight(context);
 ///
+/// // Sequential navigation (v1.1.0+)
+/// Dpad.navigateNext(context);      // Tab / Media Track Next
+/// Dpad.navigatePrevious(context);   // Shift+Tab / Media Track Previous
+///
 /// // Focus management
 /// final currentFocus = Dpad.currentFocus;
 /// Dpad.requestFocus(myFocusNode);
