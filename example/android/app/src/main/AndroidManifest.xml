@@ -1,0 +1,49 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.dpad_example">
+
+    <!-- TV features declaration -->
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.gamepad"
+        android:required="true" />
+    <uses-feature
+        android:name="android.software.leanback"
+        android:required="true" />
+    <uses-feature
+        android:name="android.hardware.type.television"
+        android:required="true" />
+
+    <!-- Network permissions for image loading -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:label="D-pad Navigation Demo"
+        android:icon="@mipmap/ic_launcher"
+        android:banner="@drawable/app_banner"
+        android:theme="@style/Theme.App"
+        android:launchMode="singleTask">
+        
+        <!-- TV launcher intent -->
+        <intent-filter>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|screenLayout|uiMode|navigation|density|fontScale"
+            android:launchMode="singleTop"
+            android:screenOrientation="landscape">
+        </activity>
+
+        <!-- Meta-data for TV -->
+        <meta-data
+            android:name="com.google.android.gms.tv.application.banner"
+            android:resource="@drawable/app_banner" />
+            
+    </application>
+</manifest>
