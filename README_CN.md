@@ -48,7 +48,7 @@
 
 ```yaml
 dependencies:
-  dpad: ^1.1.0
+  dpad: any
 ```
 
 ### 2. 包装你的应用
