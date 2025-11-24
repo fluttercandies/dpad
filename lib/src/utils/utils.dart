@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'focus_history.dart';
 
 /// Utility class providing convenient methods for programmatic D-pad navigation.
 ///
@@ -22,6 +23,11 @@ import 'package:flutter/material.dart';
 /// 
 /// // Clear all focus
 /// Dpad.clearFocus();
+/// 
+/// // Focus memory utilities
+/// final previousEntry = Dpad.getPreviousFocus();
+/// final currentEntry = Dpad.getCurrentFocusEntry();
+/// final history = Dpad.getFocusHistory();
 /// ```
 ///
 /// **Use Cases:**
@@ -29,7 +35,11 @@ import 'package:flutter/material.dart';
 /// - Focus restoration after dialogs
 /// - Programmatic navigation in response to gestures
 /// - Custom navigation logic beyond D-pad controls
-class Dpad {
+/// - Focus memory management and restoration
+final class Dpad {
+
+  Dpad._();
+
   /// Gets the currently focused widget's FocusNode.
   /// 
   /// Returns the FocusNode of the widget that currently has focus,
@@ -220,4 +230,90 @@ class Dpad {
   static bool navigatePrevious(BuildContext context) {
     return FocusScope.of(context).previousFocus();
   }
+
+  /// Gets the current focus entry with complete information.
+  /// 
+  /// Returns the current focus entry with region, route, and other metadata.
+  /// 
+  /// **Returns:** The current focus entry, or null if no focus
+  /// 
+  /// **Example:**
+  /// ```dart
+  /// final currentEntry = Dpad.getCurrentFocusEntry();
+  /// if (currentEntry != null) {
+  ///   print('Current region: ${currentEntry.region}');
+  /// }
+  /// ```
+  static FocusHistoryEntry? getCurrentFocusEntry() {
+    return FocusHistory.getCurrent();
+  }
+
+  /// Gets the previous focus entry for memory restoration.
+  /// 
+  /// Returns the entry before the current one, used for focus memory restoration.
+  /// 
+  /// **Returns:** The previous focus entry, or null if none exists
+  /// 
+  /// **Example:**
+  /// ```dart
+  /// final previousEntry = Dpad.getPreviousFocus();
+  /// if (previousEntry != null) {
+  ///   print('Previous region: ${previousEntry.region}');
+  /// }
+  /// ```
+  static FocusHistoryEntry? getPreviousFocus() {
+    return FocusHistory.getPrevious();
+  }
+
+  /// Gets the complete focus history as a list.
+  /// 
+  /// Returns the complete focus history stack for analysis and custom logic.
+  /// 
+  /// **Returns:** Complete list of focus history entries
+  /// 
+  /// **Example:**
+  /// ```dart
+  /// final history = Dpad.getFocusHistory();
+  /// for (final entry in history) {
+  ///   print('Region: ${entry.region}, Route: ${entry.routeName}');
+  /// }
+  /// ```
+  static List<FocusHistoryEntry> getFocusHistory() {
+    return FocusHistory.getHistory();
+  }
+
+  /// Clears all focus history entries and resets the memory state.
+  /// 
+  /// Clears all recorded focus history, resetting the focus memory state.
+  /// 
+  /// **Example:**
+  /// ```dart
+  /// Dpad.clearFocusHistory();
+  /// ```
+  static void clearFocusHistory() {
+    FocusHistory.clear();
+  }
+
+  /// Scrolls to focused widget using Flutter's built-in ensureVisible method.
+  /// 
+  /// Uses the official Flutter SDK method to handle all scrolling logic.
+  /// 
+  /// [focusNode] The focus node to scroll into view
+  static void scrollToFocus(FocusNode focusNode) {
+    if (focusNode.context == null) return;
+    
+    try {
+      // Simply use Flutter's ensureVisible with center alignment
+      // Let Flutter handle all the edge detection and scrolling logic
+      Scrollable.ensureVisible(
+        focusNode.context!,
+        alignment: 0.4, // Slightly above center to avoid bottom edge issues
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOutCubic,
+      );
+    } catch (e) {
+      // Silently fail if scrolling is not possible
+    }
+  }
 }
+

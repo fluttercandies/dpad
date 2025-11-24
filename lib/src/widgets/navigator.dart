@@ -1,5 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../utils/focus_history.dart';
+import '../utils/focus_memory_options.dart';
+import '../utils/utils.dart';
+
+/// Callback type for focus navigation back functionality.
+/// 
+/// [context] The current build context
+/// [previousEntry] The previous focus entry
+/// [history] Complete focus history stack
+/// Returns KeyEventResult.handled if processed, ignored for system default behavior
+typedef FocusNavigateBackCallback = KeyEventResult Function(
+  BuildContext context, 
+  FocusHistoryEntry? previousEntry, 
+  List<FocusHistoryEntry> history
+);
 
 /// Root container providing global D-pad navigation support for Flutter TV apps.
 ///
@@ -35,7 +50,7 @@ import 'package:flutter/services.dart';
 /// - Custom keyboard shortcuts
 /// - Platform-specific key handling
 /// - Seamless Flutter focus integration
-class DpadNavigator extends StatelessWidget {
+class DpadNavigator extends StatefulWidget {
   /// The child widget that will have D-pad navigation support.
   /// 
   /// This is typically your app's root widget (MaterialApp, CupertinoApp, etc.).
@@ -88,6 +103,17 @@ class DpadNavigator extends StatelessWidget {
   /// full control over back navigation within your app.
   final VoidCallback? onBackPressed;
 
+  /// Focus memory configuration options.
+  /// 
+  /// Used to configure the enabled state and behavior of focus memory features.
+  final FocusMemoryOptions? focusMemory;
+
+  /// Focus navigation back callback.
+  /// 
+  /// Used to handle the back key with focus memory restoration logic.
+  /// Provides context information for user customization.
+  final FocusNavigateBackCallback? onNavigateBack;
+
   /// Creates a [DpadNavigator] widget.
   ///
   /// The [child] parameter is required. All other parameters are optional.
@@ -110,13 +136,40 @@ class DpadNavigator extends StatelessWidget {
     this.enabled = true,
     this.onMenuPressed,
     this.onBackPressed,
+    this.focusMemory,
+    this.onNavigateBack,
   });
 
   @override
+  State<DpadNavigator> createState() => _DpadNavigatorState();
+}
+
+class _DpadNavigatorState extends State<DpadNavigator> {
+  @override
+  void initState() {
+    super.initState();
+    // Initialize focus history only once when widget is created
+    if (widget.focusMemory?.enabled == true) {
+      FocusHistory.setMaxSize(widget.focusMemory!.maxHistory);
+    }
+  }
+
+  @override
+  void didUpdateWidget(DpadNavigator oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Update focus history settings only if they change
+    if (widget.focusMemory?.enabled == true && 
+        widget.focusMemory?.maxHistory != oldWidget.focusMemory?.maxHistory) {
+      FocusHistory.setMaxSize(widget.focusMemory!.maxHistory);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+
     // If navigation is disabled, just return the child as-is
-    if (!enabled) {
-      return child;
+    if (!widget.enabled) {
+      return widget.child;
     }
 
     // Wrap with Focus widget to handle key events
@@ -127,11 +180,10 @@ class DpadNavigator extends StatelessWidget {
           // Handle special keys that don't use the shortcut system
           if (event.logicalKey == LogicalKeyboardKey.escape ||
               event.logicalKey == LogicalKeyboardKey.goBack) {
-            onBackPressed?.call();
-            return KeyEventResult.handled;
+            return _handleNavigateBack(context);
           }
           if (event.logicalKey == LogicalKeyboardKey.contextMenu) {
-            onMenuPressed?.call();
+            widget.onMenuPressed?.call();
             return KeyEventResult.handled;
           }
         }
@@ -139,7 +191,7 @@ class DpadNavigator extends StatelessWidget {
       },
       child: CallbackShortcuts(
         bindings: _buildBindings(),
-        child: child,
+        child: widget.child,
       ),
     );
   }
@@ -184,8 +236,8 @@ class DpadNavigator extends StatelessWidget {
     };
 
     // Add any custom shortcuts provided by user
-    if (customShortcuts != null) {
-      for (final entry in customShortcuts!.entries) {
+    if (widget.customShortcuts != null) {
+      for (final entry in widget.customShortcuts!.entries) {
         bindings[SingleActivator(entry.key)] = entry.value;
       }
     }
@@ -247,4 +299,42 @@ class DpadNavigator extends StatelessWidget {
       FocusScope.of(currentContext).previousFocus();
     }
   }
+
+  /// Handles focus memory logic for back key navigation.
+  /// 
+  /// [context] The current build context
+  /// Returns KeyEventResult.handled if processed, ignored for system default behavior
+  KeyEventResult _handleNavigateBack(BuildContext context) {
+    // If focus memory is disabled or no callback, use original logic
+    if (widget.focusMemory?.enabled != true || widget.onNavigateBack == null) {
+      widget.onBackPressed?.call();
+      return KeyEventResult.handled;
+    }
+    
+    // Get previous focus and complete history
+    final previousEntry = FocusHistory.getPrevious();
+    final history = FocusHistory.getHistory();
+    
+    // Call user custom callback
+    final result = widget.onNavigateBack!(context, previousEntry, history);
+    
+    // If user handled the back key, restore previous focus
+    if (result == KeyEventResult.handled && previousEntry != null) {
+      // Note: FocusHistory.pop() should be called in the user callback
+      // as we don't know if they want to pop or just temporarily restore
+      previousEntry.focusNode.requestFocus();
+      
+      // Scroll to ensure the focused widget is visible
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Dpad.scrollToFocus(previousEntry.focusNode);
+      });
+    } else if (result == KeyEventResult.ignored) {
+      // User chose system default behavior
+      widget.onBackPressed?.call();
+    }
+    
+    return KeyEventResult.handled;
+  }
+
+
 }

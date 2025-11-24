@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2025-11-23
+
+### Added
+- Focus memory system for intelligent focus restoration
+- `FocusMemoryOptions` configuration for focus memory settings
+- `region` property in `DpadFocusable` for area identification
+- `onNavigateBack` callback in `DpadNavigator` for custom back navigation logic
+- Stack-based focus history management with configurable size limits
+- Route and region aware focus restoration
+
+### Features
+- Automatic focus position restoration when returning to previous areas
+- Tab switching memory - returns to previously selected tab
+- Filter navigation memory - returns to previously selected filter option
+- Cross-route focus history tracking
+- Configurable focus memory size and regions
+- Complete backward compatibility with existing APIs
+
 ## [1.1.0] - 2025-11-14
 
 ### Added

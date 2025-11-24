@@ -210,3 +210,5 @@ export 'src/effects/focus_effects.dart';
 
 // Utility exports
 export 'src/utils/utils.dart';
+export 'src/utils/focus_history.dart';
+export 'src/utils/focus_memory_options.dart';

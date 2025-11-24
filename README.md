@@ -183,6 +183,57 @@ DpadFocusable(
 
 ## 🔧 Advanced Usage
 
+## 🧠 Focus Memory (New in v1.2.0)
+
+The focus memory system intelligently remembers user's focus positions and restores them when navigating back, providing a more natural TV navigation experience.
+
+### Quick Setup
+
+```dart
+DpadNavigator(
+  focusMemory: FocusMemoryOptions(
+    enabled: true,
+    maxHistory: 20,
+  ),
+  onNavigateBack: (context, previousEntry, history) {
+    if (previousEntry != null) {
+      previousEntry.focusNode.requestFocus();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  },
+  child: MyApp(),
+)
+```
+
+### Region Identification
+
+```dart
+// Tab bar
+DpadFocusable(
+  region: 'tabs',
+  child: TabButton(),
+)
+
+// Filter area
+DpadFocusable(
+  region: 'filters',
+  child: FilterOption(),
+)
+
+// Content cards
+DpadFocusable(
+  region: 'cards',
+  child: ContentCard(),
+)
+```
+
+### Use Cases
+
+- **Tab Navigation**: Tab A → Browse → Tab B → Back → Tab B (restores previous tab)
+- **Filter Navigation**: Filter A → Browse → Filter A → Back → Filter A (restores previous filter)
+- **Cross-Route Navigation**: Maintains separate focus history per route
+
 ### Custom Shortcuts
 
 ```dart

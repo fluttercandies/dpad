@@ -183,6 +183,57 @@ DpadFocusable(
 
 ## 🔧 高级用法
 
+## 🧠 焦点记忆 (v1.2.0新增)
+
+焦点记忆系统智能记录用户的焦点位置，并在返回导航时恢复它们，提供更自然的电视导航体验。
+
+### 快速设置
+
+```dart
+DpadNavigator(
+  focusMemory: FocusMemoryOptions(
+    enabled: true,
+    maxHistory: 20,
+  ),
+  onNavigateBack: (context, previousEntry, history) {
+    if (previousEntry != null) {
+      previousEntry.focusNode.requestFocus();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  },
+  child: MyApp(),
+)
+```
+
+### 区域标识
+
+```dart
+// Tab栏
+DpadFocusable(
+  region: 'tabs',
+  child: TabButton(),
+)
+
+// 筛选区域
+DpadFocusable(
+  region: 'filters',
+  child: FilterOption(),
+)
+
+// 内容卡片
+DpadFocusable(
+  region: 'cards',
+  child: ContentCard(),
+)
+```
+
+### 使用场景
+
+- **Tab导航**：Tab A → 浏览 → Tab B → 返回 → Tab B（恢复到之前的Tab）
+- **筛选导航**：筛选A → 浏览 → 筛选A → 返回 → 筛选A（恢复到之前的筛选）
+- **跨路由导航**：为每个路由维护独立的焦点历史
+
 ### 自定义快捷键
 
 ```dart

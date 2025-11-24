@@ -31,7 +31,7 @@ import 'package:flutter/material.dart';
 typedef FocusEffectBuilder = Widget Function(
   BuildContext context,
   bool isFocused,
-  Widget child,
+  Widget? child,
 );
 
 /// Pre-built focus effects for common use cases.
@@ -275,6 +275,9 @@ class FocusEffects {
     Duration duration = const Duration(milliseconds: 200),
   }) {
     return (context, isFocused, child) {
+      if (child == null) {
+        throw FlutterError('FocusEffects.elevation: child cannot be null');
+      }
       return AnimatedPhysicalModel(
         duration: duration,
         elevation: isFocused ? focusedElevation : unfocusedElevation,
@@ -436,11 +439,11 @@ class FocusEffects {
   /// **Returns:** A [FocusEffectBuilder] that applies all effects
   static FocusEffectBuilder combine(List<FocusEffectBuilder> effects) {
     return (context, isFocused, child) {
-      Widget result = child;
+      Widget? result = child;
       for (final effect in effects.reversed) {
         result = effect(context, isFocused, result);
       }
-      return result;
+      return result ?? Container();  // 为null结果提供安全回退
     };
   }
 }
