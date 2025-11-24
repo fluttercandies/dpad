@@ -13,9 +13,9 @@ import '../../dpad.dart';
 /// ```dart
 /// DpadFocusable(
 ///   autofocus: true,
-///   onFocus: () => print('Got focus'),
-///   onBlur: () => print('Lost focus'),
-///   onSelect: () => print('Selected'),
+///   onFocus: () {}, // Got focus
+///   onBlur: () {}, // Lost focus
+///   onSelect: () {}, // Selected
 ///   builder: (context, isFocused, child) {
 ///     return AnimatedContainer(
 ///       duration: Duration(milliseconds: 200),
@@ -30,7 +30,7 @@ import '../../dpad.dart';
 ///     );
 ///   },
 ///   child: ElevatedButton(
-///     onPressed: () => print('Button pressed'),
+///     onPressed: () {}, // Button pressed
 ///     child: Text('Focusable Button'),
 ///   ),
 /// )
@@ -155,6 +155,9 @@ class DpadFocusable extends StatefulWidget {
 class _DpadFocusableState extends State<DpadFocusable> {
   late FocusNode _focusNode;
 
+  /// Flag to prevent duplicate history recording during focus restoration
+  bool _isRestoringFocus = false;
+
   @override
   void initState() {
     super.initState();
@@ -170,8 +173,8 @@ class _DpadFocusableState extends State<DpadFocusable> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           _focusNode.requestFocus();
-          // Record initial focus to history
-          _recordFocusToHistory();
+          // Note: Don't record history here - _onFocusChange listener will handle it
+          // This prevents duplicate recording for autofocus widgets
         }
       });
     }
@@ -220,23 +223,37 @@ class _DpadFocusableState extends State<DpadFocusable> {
   void _recordFocusToHistory() {
     final navigator = _findNavigator(context);
     if (navigator == null) return;
+
     final memory = navigator.focusMemory;
     if (memory == null || !memory.enabled) {
       return;
     }
 
-    // Check if this region should be tracked
-    if (memory.shouldTrackRegion(widget.region)) {
-      final routeName = ModalRoute.of(context)?.settings.name ?? 
-                      memory.defaultRoute ?? 
-                      'default_route';
+    final current = FocusHistory.getCurrent();
+    if (current?.focusNode == _focusNode) {
+      return;
+    }
 
-      FocusHistory.push(FocusHistoryEntry(
+    final lastPoppedEntry = FocusHistory.getLastPoppedEntry();
+    if (lastPoppedEntry?.focusNode == _focusNode) {
+      // Skip recording - this focus was just restored from history
+      return;
+    }
+
+    // Check if this region should be tracked
+    final shouldTrack = memory.shouldTrackRegion(widget.region);
+
+    if (shouldTrack) {
+      final route = ModalRoute.of(context);
+
+      final entry = FocusHistoryEntry(
         focusNode: _focusNode,
         region: widget.region,
-        routeName: routeName,
+        route: route,
         debugLabel: widget.debugLabel,
-      ));
+      );
+
+      FocusHistory.push(entry);
     }
   }
 
@@ -279,8 +296,9 @@ class _DpadFocusableState extends State<DpadFocusable> {
       return widget.builder!(context, _focusNode.hasFocus, widget.child);
     }
 
-    // 无builder时，child必须存在
-    assert(widget.child != null, 'DpadFocusable: child must be provided when builder is null.');
+    // When no builder is provided, child must exist
+    assert(widget.child != null,
+        'DpadFocusable: child must be provided when builder is null.');
     return FocusEffects.border()(context, _focusNode.hasFocus, widget.child!);
   }
 

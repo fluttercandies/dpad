@@ -16,11 +16,11 @@
 ///   runApp(DpadNavigator(
 ///     enabled: true,
 ///     customShortcuts: {
-///       LogicalKeyboardKey.keyG: () => print('Grid view'),
-///       LogicalKeyboardKey.keyL: () => print('List view'),
+///       LogicalKeyboardKey.keyG: () {}, // Grid view
+///       LogicalKeyboardKey.keyL: () {}, // List view
 ///     },
-///     onMenuPressed: () => print('Menu pressed'),
-///     onBackPressed: () => print('Back pressed'),
+///     onMenuPressed: () {}, // Menu pressed
+///     onBackPressed: () {}, // Back pressed
 ///     child: MaterialApp(
 ///       theme: ThemeData.dark(),
 ///       home: MyScreen(),
@@ -39,8 +39,8 @@
 ///             // Custom focus effect with border highlight
 ///             DpadFocusable(
 ///               autofocus: true,
-///               onFocus: () => print('Button 1 focused'),
-///               onSelect: () => print('Button 1 selected'),
+///               onFocus: () {}, // Button 1 focused
+///               onSelect: () {}, // Button 1 selected
 ///               builder: (context, isFocused, child) {
 ///                 return AnimatedContainer(
 ///                   duration: Duration(milliseconds: 200),
@@ -55,31 +55,31 @@
 ///                 );
 ///               },
 ///               child: ElevatedButton(
-///                 onPressed: () => print('Button 1 pressed'),
+///                 onPressed: () {}, // Button 1 pressed
 ///                 child: Text('Button 1'),
 ///               ),
 ///             ),
 ///
 ///             // Using built-in glow effect
 ///             DpadFocusable(
-///               onFocus: () => print('Button 2 focused'),
-///               onSelect: () => print('Button 2 selected'),
+///               onFocus: () {}, // Button 2 focused
+///               onSelect: () {}, // Button 2 selected
 ///               builder: FocusEffects.glow(
 ///                 glowColor: Colors.green,
 ///                 blurRadius: 15.0,
 ///               ),
 ///               child: ElevatedButton(
-///                 onPressed: () => print('Button 2 pressed'),
+///                 onPressed: () {}, // Button 2 pressed
 ///                 child: Text('Button 2'),
 ///               ),
 ///             ),
 ///
 ///             // Default focus effect (simple border)
 ///             DpadFocusable(
-///               onFocus: () => print('Button 3 focused'),
-///               onSelect: () => print('Button 3 selected'),
+///               onFocus: () {}, // Button 3 focused
+///               onSelect: () {}, // Button 3 selected
 ///               child: ElevatedButton(
-///                 onPressed: () => print('Button 3 pressed'),
+///                 onPressed: () {}, // Button 3 pressed
 ///                 child: Text('Button 3'),
 ///               ),
 ///             ),
@@ -141,7 +141,7 @@
 ///     );
 ///   },
 ///   child: ElevatedButton(
-///     onPressed: () => print('Button pressed'),
+///     onPressed: () {}, // Button pressed
 ///     child: Text('Custom Effect Button'),
 ///   ),
 /// )
@@ -201,14 +201,14 @@
 
 library dpad;
 
-// Widget exports
-export 'src/widgets/navigator.dart';
-export 'src/widgets/focusable.dart';
+// Navigation exports
+export 'src/navigation/dpad_navigator.dart';
 
-// Effects exports
-export 'src/effects/focus_effects.dart';
+// Focus exports
+export 'src/focus/dpad_focusable.dart';
+export 'src/focus/focus_effects.dart';
 
-// Utility exports
-export 'src/utils/utils.dart';
-export 'src/utils/focus_history.dart';
-export 'src/utils/focus_memory_options.dart';
+// Core exports
+export 'src/core/dpad_core.dart';
+export 'src/core/focus_history.dart';
+export 'src/core/focus_memory_options.dart';

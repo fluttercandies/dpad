@@ -14,13 +14,18 @@ void main() {
       ),
       onNavigateBack: (context, previousEntry, history) {
         if (previousEntry != null) {
-          debugPrint(
-              'Restoring focus to: ${previousEntry.debugLabel ?? previousEntry.region}');
-          FocusHistory.pop();
-          previousEntry.focusNode.requestFocus();
-          return KeyEventResult.handled;
+          // Use the safe focus request method that includes validation
+          final focusSuccess = previousEntry.requestFocusSafely();
+
+          if (focusSuccess) {
+            // Scroll to ensure the focused widget is visible
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              Dpad.scrollToFocus(previousEntry.focusNode);
+            });
+
+            return KeyEventResult.handled;
+          }
         }
-        debugPrint('No previous focus entry found - using default back navigation');
         return KeyEventResult.ignored;
       },
       customShortcuts: {
@@ -37,7 +42,8 @@ void main() {
         LogicalKeyboardKey.keyD: () {
           final current = Dpad.getCurrentFocusEntry();
           final previous = Dpad.getPreviousFocus();
-          debugPrint('Current focus: ${current?.debugLabel ?? "null"}, Previous: ${previous?.debugLabel ?? "null"}');
+          debugPrint(
+              'Current focus: ${current?.debugLabel ?? "null"}, Previous: ${previous?.debugLabel ?? "null"}');
         },
       },
       child: MaterialApp(
@@ -189,7 +195,7 @@ class _ModernTVInterfaceState extends State<ModernTVInterface> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Color(0xFF090909),
+      backgroundColor: const Color(0xFF090909),
       body: Row(
         children: [
           // Sidebar
@@ -663,78 +669,68 @@ class _ModernTVInterfaceState extends State<ModernTVInterface> {
     return Container(
       width: 208,
       margin: const EdgeInsets.only(right: 24, top: 12),
-      child: DpadFocusable(
-        region: 'recent',
-        debugLabel: 'Recent ${item['title']}',
-        onFocus: () => debugPrint('Recent ${item['title']} focused'),
-        onSelect: () => debugPrint('Recent ${item['title']} selected'),
-        builder: (context, isFocused, child) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Cover
-              Expanded(
-                child: DpadFocusable(
-                    region: 'recent',
-                    debugLabel: 'Recent ${item['title']}',
-                    onFocus: () =>
-                        debugPrint('Recent ${item['title']} focused'),
-                    onSelect: () =>
-                        debugPrint('Recent ${item['title']} selected'),
-                    builder: (context, isFocused, child) {
-                      return AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        width: 208,
-                        height: 312,
-                        decoration: ShapeDecoration(
-                          shape: RoundedSuperellipseBorder(
-                              borderRadius: BorderRadius.circular(20)),
-                          color: Theme.of(context).cardColor,
-                          image: DecorationImage(
-                            image: NetworkImage(item['imageUrl'] as String),
-                            fit: BoxFit.cover,
-                          ),
-                          shadows: isFocused
-                              ? [
-                                  BoxShadow(
-                                    color: Theme.of(context).primaryColor,
-                                    blurRadius: 12,
-                                  )
-                                ]
-                              : null,
-                        ),
-                      );
-                    }),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Cover
+          Expanded(
+            child: DpadFocusable(
+                region: 'recent',
+                debugLabel: 'Recent ${item['title']}',
+                onFocus: () => debugPrint('Recent ${item['title']} focused'),
+                onSelect: () => debugPrint('Recent ${item['title']} selected'),
+                builder: (context, isFocused, child) {
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: 208,
+                    height: 312,
+                    decoration: ShapeDecoration(
+                      shape: RoundedSuperellipseBorder(
+                          borderRadius: BorderRadius.circular(20)),
+                      color: Theme.of(context).cardColor,
+                      image: DecorationImage(
+                        image: NetworkImage(item['imageUrl'] as String),
+                        fit: BoxFit.cover,
+                      ),
+                      shadows: isFocused
+                          ? [
+                              BoxShadow(
+                                color: Theme.of(context).primaryColor,
+                                blurRadius: 12,
+                              )
+                            ]
+                          : null,
+                    ),
+                  );
+                }),
+          ),
+          const SizedBox(height: 12),
+          // Title
+          Text(
+            item['title'] as String,
+            style: const TextStyle(
+              color: Color(0xFFEAEAEA),
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 4),
+          // Description
+          SizedBox(
+            height: 40,
+            child: Text(
+              item['description'] as String,
+              style: const TextStyle(
+                color: Color(0xFF888888),
+                fontSize: 14,
               ),
-              const SizedBox(height: 12),
-              // Title
-              Text(
-                item['title'] as String,
-                style: const TextStyle(
-                  color: Color(0xFFEAEAEA),
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 4),
-              // Description
-              SizedBox(
-                height: 40,
-                child: Text(
-                  item['description'] as String,
-                  style: const TextStyle(
-                    color: Color(0xFF888888),
-                    fontSize: 14,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          );
-        },
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
       ),
     );
   }

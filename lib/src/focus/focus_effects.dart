@@ -423,7 +423,7 @@ class FocusEffects {
   /// Allows you to stack multiple focus effects together.
   /// Effects are applied in reverse order, so the first effect
   /// in the list is the outermost (closest to child).
-  /// 
+  ///
   /// **Example:**
   /// ```dart
   /// FocusEffects.combine([
@@ -439,11 +439,10 @@ class FocusEffects {
   /// **Returns:** A [FocusEffectBuilder] that applies all effects
   static FocusEffectBuilder combine(List<FocusEffectBuilder> effects) {
     return (context, isFocused, child) {
-      Widget? result = child;
       for (final effect in effects.reversed) {
-        result = effect(context, isFocused, result);
+        child = effect(context, isFocused, child);
       }
-      return result ?? Container();  // 为null结果提供安全回退
+      return child!;
     };
   }
 }

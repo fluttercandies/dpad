@@ -1,20 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../utils/focus_history.dart';
-import '../utils/focus_memory_options.dart';
-import '../utils/utils.dart';
+
+import '../core/dpad_core.dart';
+import '../core/focus_history.dart';
+import '../core/focus_memory_options.dart';
 
 /// Callback type for focus navigation back functionality.
-/// 
+///
 /// [context] The current build context
 /// [previousEntry] The previous focus entry
 /// [history] Complete focus history stack
 /// Returns KeyEventResult.handled if processed, ignored for system default behavior
 typedef FocusNavigateBackCallback = KeyEventResult Function(
-  BuildContext context, 
-  FocusHistoryEntry? previousEntry, 
-  List<FocusHistoryEntry> history
-);
+    BuildContext context,
+    FocusHistoryEntry? previousEntry,
+    List<FocusHistoryEntry> history);
 
 /// Root container providing global D-pad navigation support for Flutter TV apps.
 ///
@@ -28,11 +28,11 @@ typedef FocusNavigateBackCallback = KeyEventResult Function(
 ///     DpadNavigator(
 ///       enabled: true,
 ///       customShortcuts: {
-///         LogicalKeyboardKey.keyG: () => print('Grid view'),
-///         LogicalKeyboardKey.keyL: () => print('List view'),
+///         LogicalKeyboardKey.keyG: () {}, // Grid view
+///         LogicalKeyboardKey.keyL: () {}, // List view
 ///       },
-///       onMenuPressed: () => print('Menu pressed'),
-///       onBackPressed: () => print('Back pressed'),
+///       onMenuPressed: () {}, // Menu pressed
+///       onBackPressed: () {}, // Back pressed
 ///       child: MyApp(),
 ///     ),
 ///   );
@@ -52,16 +52,16 @@ typedef FocusNavigateBackCallback = KeyEventResult Function(
 /// - Seamless Flutter focus integration
 class DpadNavigator extends StatefulWidget {
   /// The child widget that will have D-pad navigation support.
-  /// 
+  ///
   /// This is typically your app's root widget (MaterialApp, CupertinoApp, etc.).
   /// The child will receive all D-pad navigation capabilities.
   final Widget child;
 
   /// Map of custom keyboard shortcuts and their corresponding actions.
-  /// 
+  ///
   /// Allows you to add custom key bindings beyond the default D-pad controls.
   /// Useful for application-specific shortcuts like 'G' for grid view, 'L' for list view, etc.
-  /// 
+  ///
   /// **Example:**
   /// ```dart
   /// customShortcuts: {
@@ -73,19 +73,19 @@ class DpadNavigator extends StatefulWidget {
   final Map<LogicalKeyboardKey, VoidCallback>? customShortcuts;
 
   /// Whether D-pad navigation is enabled.
-  /// 
+  ///
   /// When set to false, the widget will pass through the child without any
   /// D-pad handling capabilities. This can be useful for temporarily disabling
   /// TV navigation or for non-TV platforms.
-  /// 
+  ///
   /// Defaults to `true`.
   final bool enabled;
 
   /// Callback function triggered when the menu key is pressed.
-  /// 
+  ///
   /// This is typically triggered by the menu button on TV remotes or the ContextMenu key.
   /// Use this to show application menus, settings, or other menu-related actions.
-  /// 
+  ///
   /// **Platform Details:**
   /// - Android TV: Menu button on remote
   /// - Fire TV: Menu button on remote
@@ -93,23 +93,23 @@ class DpadNavigator extends StatefulWidget {
   final VoidCallback? onMenuPressed;
 
   /// Callback function triggered when the back key is pressed.
-  /// 
+  ///
   /// This handles the back navigation functionality, typically triggered by:
   /// - Escape key on keyboard
   /// - Back button on TV remotes
   /// - Android back button
-  /// 
+  ///
   /// **Note:** This differs from the system back behavior and gives you
   /// full control over back navigation within your app.
   final VoidCallback? onBackPressed;
 
   /// Focus memory configuration options.
-  /// 
+  ///
   /// Used to configure the enabled state and behavior of focus memory features.
   final FocusMemoryOptions? focusMemory;
 
   /// Focus navigation back callback.
-  /// 
+  ///
   /// Used to handle the back key with focus memory restoration logic.
   /// Provides context information for user customization.
   final FocusNavigateBackCallback? onNavigateBack;
@@ -117,7 +117,7 @@ class DpadNavigator extends StatefulWidget {
   /// Creates a [DpadNavigator] widget.
   ///
   /// The [child] parameter is required. All other parameters are optional.
-  /// 
+  ///
   /// **Example:**
   /// ```dart
   /// DpadNavigator(
@@ -158,7 +158,7 @@ class _DpadNavigatorState extends State<DpadNavigator> {
   void didUpdateWidget(DpadNavigator oldWidget) {
     super.didUpdateWidget(oldWidget);
     // Update focus history settings only if they change
-    if (widget.focusMemory?.enabled == true && 
+    if (widget.focusMemory?.enabled == true &&
         widget.focusMemory?.maxHistory != oldWidget.focusMemory?.maxHistory) {
       FocusHistory.setMaxSize(widget.focusMemory!.maxHistory);
     }
@@ -166,15 +166,15 @@ class _DpadNavigatorState extends State<DpadNavigator> {
 
   @override
   Widget build(BuildContext context) {
-
     // If navigation is disabled, just return the child as-is
     if (!widget.enabled) {
       return widget.child;
     }
 
     // Wrap with Focus widget to handle key events
+    // Note: We don't request focus here to let child widgets manage focus
     return Focus(
-      autofocus: true,
+      // Don't autofocus to prevent stealing focus from child widgets
       onKeyEvent: (node, event) {
         if (event is KeyDownEvent) {
           // Handle special keys that don't use the shortcut system
@@ -197,17 +197,17 @@ class _DpadNavigatorState extends State<DpadNavigator> {
   }
 
   /// Builds the map of keyboard shortcuts and their corresponding actions.
-  /// 
+  ///
   /// This combines default D-pad controls with any custom shortcuts
   /// provided by the user.
-  /// 
+  ///
   /// **Default Shortcuts:**
   /// - Arrow keys: Navigate focus in respective directions
   /// - Tab/Shift+Tab: Navigate to next/previous in focus order
   /// - Media Track Next/Previous: Sequential navigation
   /// - Channel Up/Down: TV remote sequential navigation
   /// - Enter/Select/Space: Trigger selection action
-  /// 
+  ///
   /// Returns a map of [ShortcutActivator] to [VoidCallback] pairs.
   Map<ShortcutActivator, VoidCallback> _buildBindings() {
     final bindings = <ShortcutActivator, VoidCallback>{
@@ -220,15 +220,20 @@ class _DpadNavigatorState extends State<DpadNavigator> {
           _navigate(TraversalDirection.left),
       const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
           _navigate(TraversalDirection.right),
-      
+
       // Sequential navigation controls
       const SingleActivator(LogicalKeyboardKey.tab): () => _navigateNext(),
-      const SingleActivator(LogicalKeyboardKey.tab, shift: true): () => _navigatePrevious(),
-      const SingleActivator(LogicalKeyboardKey.mediaTrackNext): () => _navigateNext(),
-      const SingleActivator(LogicalKeyboardKey.mediaTrackPrevious): () => _navigatePrevious(),
-      const SingleActivator(LogicalKeyboardKey.channelUp): () => _navigateNext(),
-      const SingleActivator(LogicalKeyboardKey.channelDown): () => _navigatePrevious(),
-      
+      const SingleActivator(LogicalKeyboardKey.tab, shift: true): () =>
+          _navigatePrevious(),
+      const SingleActivator(LogicalKeyboardKey.mediaTrackNext): () =>
+          _navigateNext(),
+      const SingleActivator(LogicalKeyboardKey.mediaTrackPrevious): () =>
+          _navigatePrevious(),
+      const SingleActivator(LogicalKeyboardKey.channelUp): () =>
+          _navigateNext(),
+      const SingleActivator(LogicalKeyboardKey.channelDown): () =>
+          _navigatePrevious(),
+
       // Selection controls
       const SingleActivator(LogicalKeyboardKey.enter): () => _selectCurrent(),
       const SingleActivator(LogicalKeyboardKey.select): () => _selectCurrent(),
@@ -246,10 +251,10 @@ class _DpadNavigatorState extends State<DpadNavigator> {
   }
 
   /// Navigates focus in the specified direction using Flutter's native focus system.
-  /// 
+  ///
   /// This method leverages Flutter's built-in focus traversal system,
   /// ensuring compatibility with all Flutter widgets and proper focus management.
-  /// 
+  ///
   /// **Parameters:**
   /// - [direction]: The direction to navigate (up, down, left, right)
   void _navigate(TraversalDirection direction) {
@@ -262,10 +267,10 @@ class _DpadNavigatorState extends State<DpadNavigator> {
   }
 
   /// Triggers the selection action on the currently focused widget.
-  /// 
+  ///
   /// This simulates a selection event by consuming the keyboard token,
   /// which triggers the appropriate action on the focused widget.
-  /// 
+  ///
   /// **Technical Details:**
   /// - Consumes keyboard token to trigger focused widget's action
   /// - Works with buttons, list items, and any other interactive widgets
@@ -277,64 +282,87 @@ class _DpadNavigatorState extends State<DpadNavigator> {
   }
 
   /// Navigates to the next widget in the focus traversal order.
-  /// 
+  ///
   /// This method follows the logical focus order rather than spatial positioning,
   /// making it ideal for sequential navigation like media controls, lists,
   /// or form fields. Uses Flutter's native nextFocus() method.
   void _navigateNext() {
-    final currentContext = FocusManager.instance.primaryFocus?.context;
-    if (currentContext != null) {
-      FocusScope.of(currentContext).nextFocus();
+    final currentFocus = FocusManager.instance.primaryFocus;
+    if (currentFocus != null) {
+      currentFocus.nextFocus();
     }
   }
 
   /// Navigates to the previous widget in the focus traversal order.
-  /// 
+  ///
   /// This method follows the logical focus order in reverse, making it ideal
   /// for sequential navigation like media controls, lists, or form fields.
   /// Uses Flutter's native previousFocus() method.
   void _navigatePrevious() {
-    final currentContext = FocusManager.instance.primaryFocus?.context;
-    if (currentContext != null) {
-      FocusScope.of(currentContext).previousFocus();
+    final currentFocus = FocusManager.instance.primaryFocus;
+    if (currentFocus != null) {
+      currentFocus.previousFocus();
     }
   }
 
   /// Handles focus memory logic for back key navigation.
-  /// 
+  ///
   /// [context] The current build context
   /// Returns KeyEventResult.handled if processed, ignored for system default behavior
   KeyEventResult _handleNavigateBack(BuildContext context) {
     // If focus memory is disabled or no callback, use original logic
-    if (widget.focusMemory?.enabled != true || widget.onNavigateBack == null) {
+    if (widget.focusMemory?.enabled != true) {
       widget.onBackPressed?.call();
       return KeyEventResult.handled;
     }
-    
+
     // Get previous focus and complete history
-    final previousEntry = FocusHistory.getPrevious();
+    FocusHistory.cleanup();
+
+    FocusHistoryEntry? previousEntry = FocusHistory.pop();
     final history = FocusHistory.getHistory();
-    
-    // Call user custom callback
-    final result = widget.onNavigateBack!(context, previousEntry, history);
-    
-    // If user handled the back key, restore previous focus
-    if (result == KeyEventResult.handled && previousEntry != null) {
+
+    final primaryFocus = FocusManager.instance.primaryFocus;
+    if (primaryFocus != null && previousEntry?.focusNode == primaryFocus) {
+      // Avoid returning the same entry
+      previousEntry = FocusHistory.pop();
+    }
+
+    final onNavigateBack = widget.onNavigateBack;
+    if (onNavigateBack != null) {
+      final result = widget.onNavigateBack!(context, previousEntry, history);
+      if (result == KeyEventResult.ignored) {
+        widget.onBackPressed?.call();
+        return KeyEventResult.handled;
+      }
+      return result;
+    }
+
+    // If user handled the back key, restore previous focus safely
+    if (previousEntry != null) {
       // Note: FocusHistory.pop() should be called in the user callback
       // as we don't know if they want to pop or just temporarily restore
-      previousEntry.focusNode.requestFocus();
-      
-      // Scroll to ensure the focused widget is visible
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Dpad.scrollToFocus(previousEntry.focusNode);
-      });
-    } else if (result == KeyEventResult.ignored) {
+
+      // Use the new safe focus request method
+      final focusSuccess = previousEntry.requestFocusSafely();
+
+      if (focusSuccess) {
+        // Scroll to ensure the focused widget is visible
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          // Double-check validity before scrolling
+          if (previousEntry!.isValid) {
+            Dpad.scrollToFocus(previousEntry.focusNode);
+          }
+        });
+      } else {
+        // Focus restoration failed, fall back to system back behavior
+        widget.onBackPressed?.call();
+      }
+    } else {
       // User chose system default behavior
       widget.onBackPressed?.call();
     }
-    
+
     return KeyEventResult.handled;
   }
-
-
 }
