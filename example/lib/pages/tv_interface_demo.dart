@@ -305,7 +305,7 @@ class _TVInterfaceDemoState extends State<TVInterfaceDemo> {
         ),
         const SizedBox(height: 16),
         SizedBox(
-          height: 200,
+          height: 250,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -326,7 +326,7 @@ class _TVInterfaceDemoState extends State<TVInterfaceDemo> {
 
   Widget _buildCard(String title, String subtitle, String region, bool isEntry) {
     return Padding(
-      padding: const EdgeInsets.only(right: 16),
+      padding: const EdgeInsets.only(right: 16,top: 24.0,bottom: 24.0),
       child: DpadFocusable(
         region: region,
         debugLabel: '$region: $title',

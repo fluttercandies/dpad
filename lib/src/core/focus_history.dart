@@ -60,7 +60,7 @@ class FocusHistoryEntry {
   /// attempting to request focus. If the entry is invalid, it returns false.
   /// Includes additional safeguards to handle race conditions during disposal.
   ///
-  /// **Returns:** `true` if focus was successfully requested, `false` otherwise
+  /// **Returns:** `true` if focus request was initiated, `false` if entry is invalid
   bool requestFocusSafely() {
     try {
       // First check if FocusNode can still request focus
@@ -69,10 +69,16 @@ class FocusHistoryEntry {
         return false;
       }
 
+      // Check if the context is still valid
+      if (focusNode.context == null) {
+        return false;
+      }
+
       focusNode.requestFocus();
 
-      // Final verification: check if focus was actually granted
-      return FocusManager.instance.primaryFocus == focusNode;
+      // Return true to indicate the request was made
+      // The actual focus change happens asynchronously
+      return true;
     } catch (e) {
       // Focus request failed (likely due to disposal during operation)
       return false;

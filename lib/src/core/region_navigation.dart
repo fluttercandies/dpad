@@ -452,6 +452,8 @@ class RegionNavigationManager {
 ///
 /// When a navigation rule matches, this policy will override the default
 /// geometric behavior with the specified strategy (fixedEntry, memory, etc.).
+/// However, it will first check if there are more focusable items in the
+/// same region in the navigation direction before crossing to another region.
 ///
 /// **Usage with FocusTraversalGroup:**
 /// ```dart
@@ -487,28 +489,216 @@ class RegionAwareFocusTraversalPolicy extends ReadingOrderTraversalPolicy {
 
   @override
   bool inDirection(FocusNode currentNode, TraversalDirection direction) {
-    // First, check if we should apply region-based navigation
     final manager = regionManager;
-    if (manager != null && manager.options.enabled) {
-      final targetNode = manager.handleNavigation(
+
+    // If no region manager or disabled, use default behavior
+    if (manager == null || !manager.options.enabled) {
+      return super.inDirection(currentNode, direction);
+    }
+
+    // Get current node's region
+    final currentRegion = manager.getRegionForNode(currentNode);
+
+    // If current node is not in a managed region, use default behavior
+    if (currentRegion == null) {
+      return super.inDirection(currentNode, direction);
+    }
+
+    // Try to find the next node using default directional logic first
+    final defaultTarget = _findNextNodeUsingSuper(currentNode, direction);
+
+    if (defaultTarget != null) {
+      // Check if the default navigation stays within the same region
+      final targetRegion = manager.getRegionForNode(defaultTarget);
+
+      // If target is in the same region, use default navigation
+      if (targetRegion == currentRegion) {
+        requestFocusCallback(
+          defaultTarget,
+          alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
+        );
+        return true;
+      }
+
+      // Default navigation would cross regions - check if we have a rule
+      final ruleTarget = manager.handleNavigation(
         currentNode,
         direction,
         getLastFocusInRegion,
       );
 
-      if (targetNode != null) {
-        // Use Flutter's standard focus request callback
-        // This ensures proper scrolling and focus handling
+      if (ruleTarget != null) {
+        // Use the rule-specified target instead of default
         requestFocusCallback(
-          targetNode,
+          ruleTarget,
           alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
         );
         return true;
       }
+
+      // No rule, use the default navigation result
+      requestFocusCallback(
+        defaultTarget,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
+      );
+      return true;
     }
 
-    // Fall back to Flutter's default directional navigation
+    // Default navigation found nothing in same region, try region-based navigation
+    final targetNode = manager.handleNavigation(
+      currentNode,
+      direction,
+      getLastFocusInRegion,
+    );
+
+    if (targetNode != null) {
+      requestFocusCallback(
+        targetNode,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
+      );
+      return true;
+    }
+
+    // Fall back to super implementation
     return super.inDirection(currentNode, direction);
+  }
+
+  /// Finds the next focus node using the parent's directional logic.
+  ///
+  /// This simulates what super.inDirection would do, but returns the
+  /// target node instead of focusing it.
+  FocusNode? _findNextNodeUsingSuper(
+    FocusNode currentNode,
+    TraversalDirection direction,
+  ) {
+    final nearestScope = currentNode.nearestScope;
+    if (nearestScope == null) return null;
+
+    final focusedChild = nearestScope.focusedChild;
+    if (focusedChild == null) return null;
+
+    final sortedNodes = _getSortedNodesInScope(nearestScope);
+    if (sortedNodes.isEmpty) return null;
+
+    // Use geometric calculation to find the next node
+    return _findNextNodeInDirection(
+      focusedChild,
+      sortedNodes,
+      direction,
+    );
+  }
+
+  /// Gets sorted focusable nodes in the given scope.
+  List<FocusNode> _getSortedNodesInScope(FocusScopeNode scope) {
+    final descendants = scope.descendants.toList();
+    final sortedNodes = <FocusNode>[];
+
+    for (final node in descendants) {
+      if (node.canRequestFocus &&
+          !node.skipTraversal &&
+          node is! FocusScopeNode) {
+        sortedNodes.add(node);
+      }
+    }
+
+    return sortedNodes;
+  }
+
+  /// Finds the next node in the given direction using geometric calculation.
+  ///
+  /// This mimics Flutter's [DirectionalFocusTraversalPolicyMixin.inDirection]
+  /// but returns the node instead of focusing it.
+  FocusNode? _findNextNodeInDirection(
+    FocusNode currentNode,
+    List<FocusNode> candidates,
+    TraversalDirection direction,
+  ) {
+    final currentRect = currentNode.rect;
+    FocusNode? bestNode;
+    double bestScore = double.infinity;
+
+    for (final candidate in candidates) {
+      if (candidate == currentNode) continue;
+      if (!candidate.canRequestFocus) continue;
+
+      final candidateRect = candidate.rect;
+
+      // Check if candidate is in the correct direction
+      if (!_isInDirection(currentRect, candidateRect, direction)) {
+        continue;
+      }
+
+      // Calculate distance score
+      final score = _calculateDirectionalScore(
+        currentRect,
+        candidateRect,
+        direction,
+      );
+
+      if (score < bestScore) {
+        bestScore = score;
+        bestNode = candidate;
+      }
+    }
+
+    return bestNode;
+  }
+
+  /// Checks if the candidate rect is in the specified direction from current.
+  bool _isInDirection(
+    Rect current,
+    Rect candidate,
+    TraversalDirection direction,
+  ) {
+    switch (direction) {
+      case TraversalDirection.up:
+        return candidate.bottom <= current.top + 1;
+      case TraversalDirection.down:
+        return candidate.top >= current.bottom - 1;
+      case TraversalDirection.left:
+        return candidate.right <= current.left + 1;
+      case TraversalDirection.right:
+        return candidate.left >= current.right - 1;
+    }
+  }
+
+  /// Calculates a score for directional navigation.
+  ///
+  /// Lower scores are better. Considers both the distance in the primary
+  /// direction and the perpendicular offset.
+  double _calculateDirectionalScore(
+    Rect current,
+    Rect candidate,
+    TraversalDirection direction,
+  ) {
+    final currentCenter = current.center;
+    final candidateCenter = candidate.center;
+
+    double primaryDistance;
+    double perpendicularOffset;
+
+    switch (direction) {
+      case TraversalDirection.up:
+        primaryDistance = currentCenter.dy - candidateCenter.dy;
+        perpendicularOffset = (currentCenter.dx - candidateCenter.dx).abs();
+        break;
+      case TraversalDirection.down:
+        primaryDistance = candidateCenter.dy - currentCenter.dy;
+        perpendicularOffset = (currentCenter.dx - candidateCenter.dx).abs();
+        break;
+      case TraversalDirection.left:
+        primaryDistance = currentCenter.dx - candidateCenter.dx;
+        perpendicularOffset = (currentCenter.dy - candidateCenter.dy).abs();
+        break;
+      case TraversalDirection.right:
+        primaryDistance = candidateCenter.dx - currentCenter.dx;
+        perpendicularOffset = (currentCenter.dy - candidateCenter.dy).abs();
+        break;
+    }
+
+    // Weight the perpendicular offset more heavily to prefer items
+    // that are more directly in the navigation direction
+    return primaryDistance + perpendicularOffset * 2;
   }
 }
 

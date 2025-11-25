@@ -61,7 +61,6 @@ class _FocusMemoryDemoState extends State<FocusMemoryDemo> {
                         Padding(
                           padding: const EdgeInsets.only(right: 16),
                           child: DpadFocusable(
-                            autofocus: tab == 'Tab 1',
                             region: 'tabs',
                             debugLabel: tab,
                             onFocus: () {
@@ -133,8 +132,7 @@ class _FocusMemoryDemoState extends State<FocusMemoryDemo> {
                             ),
                             itemCount: 8,
                             itemBuilder: (context, index) {
-                              final itemName =
-                                  '$_currentTab Item ${index + 1}';
+                              final itemName = '$_currentTab Item ${index + 1}';
                               return DpadFocusable(
                                 region: 'content-$_currentTab',
                                 debugLabel: itemName,

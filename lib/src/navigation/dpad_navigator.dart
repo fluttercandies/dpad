@@ -258,7 +258,8 @@ class DpadNavigator extends StatefulWidget {
   State<DpadNavigator> createState() => _DpadNavigatorState();
 }
 
-class _DpadNavigatorState extends State<DpadNavigator> {
+class _DpadNavigatorState extends State<DpadNavigator>
+    with WidgetsBindingObserver {
   /// The focus history manager for this navigator instance.
   FocusHistoryManager? _historyManager;
 
@@ -268,6 +269,9 @@ class _DpadNavigatorState extends State<DpadNavigator> {
   @override
   void initState() {
     super.initState();
+    // Register as observer for app lifecycle changes
+    WidgetsBinding.instance.addObserver(this);
+
     // Initialize focus history manager only when focus memory is enabled
     if (widget.focusMemory?.enabled == true) {
       _historyManager = FocusHistoryManager(
@@ -280,6 +284,52 @@ class _DpadNavigatorState extends State<DpadNavigator> {
         options: widget.regionNavigation!,
       );
     }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+
+    // When app resumes (window regains focus), restore focus if lost
+    if (state == AppLifecycleState.resumed) {
+      _restoreFocusIfNeeded();
+    }
+  }
+
+  /// Restores focus when it's been lost (e.g., after window regains focus).
+  void _restoreFocusIfNeeded() {
+    // Use post-frame callback to ensure the widget tree is ready
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      final primaryFocus = FocusManager.instance.primaryFocus;
+
+      // If there's already a focused widget, no need to restore
+      if (primaryFocus != null && primaryFocus.context != null) {
+        return;
+      }
+
+      // Try to restore from focus history
+      if (_historyManager != null) {
+        _historyManager!.cleanup();
+        final current = _historyManager!.getCurrent();
+        if (current != null && current.isValid) {
+          current.focusNode.requestFocus();
+          return;
+        }
+      }
+
+      // If no history, try to find any focusable widget and focus it
+      _focusFirstAvailable();
+    });
+  }
+
+  /// Finds and focuses the first available focusable widget.
+  void _focusFirstAvailable() {
+    // This will trigger focus on the first focusable widget in the tree
+    // by using the focus traversal system
+    final scope = FocusManager.instance.rootScope;
+    scope.focusInDirection(TraversalDirection.down);
   }
 
   @override
@@ -324,6 +374,7 @@ class _DpadNavigatorState extends State<DpadNavigator> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _historyManager?.clear();
     _historyManager = null;
     _regionManager?.clear();
@@ -344,12 +395,18 @@ class _DpadNavigatorState extends State<DpadNavigator> {
       child: widget.child,
     );
 
-    // Wrap with region traversal scope if region navigation is enabled
+    // Wrap with region traversal scope and FocusTraversalGroup if region navigation is enabled
     if (_regionManager != null && widget.regionNavigation?.enabled == true) {
       child = RegionTraversalGroupScope(
         regionManager: _regionManager,
         getLastFocusInRegion: _getLastFocusInRegion,
-        child: child,
+        child: FocusTraversalGroup(
+          policy: RegionAwareFocusTraversalPolicy(
+            regionManager: _regionManager,
+            getLastFocusInRegion: _getLastFocusInRegion,
+          ),
+          child: child,
+        ),
       );
     }
 
@@ -360,7 +417,10 @@ class _DpadNavigatorState extends State<DpadNavigator> {
       historyManager: _historyManager,
       regionManager: _regionManager,
       child: Focus(
-        // Don't autofocus to prevent stealing focus from child widgets
+        // Skip traversal to prevent this Focus from stealing focus
+        skipTraversal: true,
+        // Disable focus on this node - it should only handle key events
+        canRequestFocus: false,
         onKeyEvent: (node, event) {
           if (event is KeyDownEvent) {
             // Handle special keys that don't use the shortcut system
@@ -436,32 +496,26 @@ class _DpadNavigatorState extends State<DpadNavigator> {
 
   /// Navigates focus in the specified direction using Flutter's native focus system.
   ///
-  /// This method first checks if region-based navigation should be used,
-  /// then falls back to Flutter's built-in focus traversal system.
+  /// This method uses Flutter's native focus traversal system with our
+  /// custom [RegionAwareFocusTraversalPolicy] for region-based navigation.
   ///
   /// **Parameters:**
   /// - [direction]: The direction to navigate (up, down, left, right)
   void _navigate(TraversalDirection direction) {
     final currentFocus = FocusManager.instance.primaryFocus;
-    if (currentFocus == null) return;
 
-    // Try region-based navigation first
-    if (_regionManager != null && widget.regionNavigation?.enabled == true) {
-      final targetNode = _regionManager!.handleNavigation(
-        currentFocus,
-        direction,
-        _getLastFocusInRegion,
-      );
-
-      if (targetNode != null && targetNode.canRequestFocus) {
-        targetNode.requestFocus();
-        return;
-      }
+    // If no focus exists (e.g., after window regains focus), restore it first
+    if (currentFocus == null || currentFocus.context == null) {
+      _restoreFocusIfNeeded();
+      return;
     }
 
-    // Fall back to Flutter's native focus navigation
+    // Use Flutter's native focus navigation which will use our
+    // RegionAwareFocusTraversalPolicy if a FocusTraversalGroup is set up
     final currentContext = currentFocus.context;
     if (currentContext != null) {
+      // This will call FocusTraversalPolicy.inDirection which we override
+      // in RegionAwareFocusTraversalPolicy to handle region-based navigation
       FocusScope.of(currentContext).focusInDirection(direction);
     }
   }
@@ -488,8 +542,15 @@ class _DpadNavigatorState extends State<DpadNavigator> {
   /// - Maintains consistency with Flutter's focus system
   void _selectCurrent() {
     final currentFocus = FocusManager.instance.primaryFocus;
+
+    // If no focus exists, restore it first
+    if (currentFocus == null || currentFocus.context == null) {
+      _restoreFocusIfNeeded();
+      return;
+    }
+
     // Consume the keyboard token to trigger the selection action
-    currentFocus?.consumeKeyboardToken();
+    currentFocus.consumeKeyboardToken();
   }
 
   /// Navigates to the next widget in the focus traversal order.
@@ -499,9 +560,14 @@ class _DpadNavigatorState extends State<DpadNavigator> {
   /// or form fields. Uses Flutter's native nextFocus() method.
   void _navigateNext() {
     final currentFocus = FocusManager.instance.primaryFocus;
-    if (currentFocus != null) {
-      currentFocus.nextFocus();
+
+    // If no focus exists, restore it first
+    if (currentFocus == null || currentFocus.context == null) {
+      _restoreFocusIfNeeded();
+      return;
     }
+
+    currentFocus.nextFocus();
   }
 
   /// Navigates to the previous widget in the focus traversal order.
@@ -511,9 +577,14 @@ class _DpadNavigatorState extends State<DpadNavigator> {
   /// Uses Flutter's native previousFocus() method.
   void _navigatePrevious() {
     final currentFocus = FocusManager.instance.primaryFocus;
-    if (currentFocus != null) {
-      currentFocus.previousFocus();
+
+    // If no focus exists, restore it first
+    if (currentFocus == null || currentFocus.context == null) {
+      _restoreFocusIfNeeded();
+      return;
     }
+
+    currentFocus.previousFocus();
   }
 
   /// Handles focus memory logic for back key navigation.

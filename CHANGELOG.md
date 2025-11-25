@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2025-11-25
+
+### Added
+- **Window Focus Restoration**: Automatically restores focus when app/window regains focus
+  - Implements `WidgetsBindingObserver` to detect `AppLifecycleState.resumed`
+  - Restores last focused widget from history or finds first focusable widget
+  - Handles navigation attempts when no widget is focused
+
+### Improved
+- **Smart Region Navigation**: Prioritizes within-region navigation before cross-region jumps
+  - Navigates through all items in current region (including hidden/scrolled items) first
+  - Only crosses to other regions when current region boundary is reached
+  - Better geometric calculation for directional navigation
+- **Focus History Safety**: Improved `requestFocusSafely()` to handle async focus changes correctly
+  - Removed premature focus verification that could fail due to async timing
+  - Added context validity check before requesting focus
+
+### Fixed
+- Fixed issue where navigation stopped working after window lost and regained focus
+- Fixed issue where pressing left/right would jump to sidebar before navigating through all list items
+- Fixed focus memory restoration returning `false` due to async focus request timing
+
 ## [2.0.0] - 2025-11-25
 
 ### Added

@@ -189,20 +189,23 @@ class RegionNavigationDemo extends StatelessWidget {
                           ),
                           const SizedBox(height: 16),
                           Expanded(
-                            child: GridView.builder(
-                              gridDelegate:
-                                  const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 4,
-                                mainAxisSpacing: 16,
-                                crossAxisSpacing: 16,
+                            child: FocusTraversalGroup(
+                              child: GridView.builder(
+                                padding: const EdgeInsets.all(8),
+                                gridDelegate:
+                                    const SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: 4,
+                                  mainAxisSpacing: 16,
+                                  crossAxisSpacing: 16,
+                                ),
+                                itemCount: 12,
+                                itemBuilder: (context, index) {
+                                  return _ContentCard(
+                                    index: index,
+                                    isEntryPoint: index == 0,
+                                  );
+                                },
                               ),
-                              itemCount: 12,
-                              itemBuilder: (context, index) {
-                                return _ContentCard(
-                                  index: index,
-                                  isEntryPoint: index == 0,
-                                );
-                              },
                             ),
                           ),
                         ],
