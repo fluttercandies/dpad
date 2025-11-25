@@ -261,6 +261,72 @@ DpadFocusable(
 - **Filter Navigation**: Filter A → Browse → Filter A → Back → Filter A (restores previous filter)
 - **Cross-Route Navigation**: Maintains separate focus history per route
 
+## 🎯 Region-based Navigation (New in v2.0.0)
+
+Region-based navigation solves the common TV UX problem where Flutter's default geometric navigation doesn't match user expectations.
+
+### The Problem
+
+With default Flutter navigation:
+- Tab → Content: might focus any card based on distance
+- Content → Tab: might jump to unexpected tab
+- Sidebar → Grid: focus could land anywhere
+
+### The Solution
+
+```dart
+DpadNavigator(
+  regionNavigation: RegionNavigationOptions(
+    enabled: true,
+    rules: [
+      // Tab → Content: always focus first card
+      RegionNavigationRule(
+        fromRegion: 'tabs',
+        toRegion: 'content',
+        direction: TraversalDirection.down,
+        strategy: RegionNavigationStrategy.fixedEntry,
+        bidirectional: true,
+        reverseStrategy: RegionNavigationStrategy.memory,
+      ),
+      // Sidebar → Grid: always focus first card
+      RegionNavigationRule(
+        fromRegion: 'sidebar',
+        toRegion: 'grid',
+        direction: TraversalDirection.right,
+        strategy: RegionNavigationStrategy.fixedEntry,
+      ),
+    ],
+  ),
+  child: MyApp(),
+)
+```
+
+### Mark Entry Points
+
+```dart
+// First card in content area - entry point
+DpadFocusable(
+  region: 'content',
+  isEntryPoint: true,
+  child: ContentCard(),
+)
+
+// Other cards in the same region
+DpadFocusable(
+  region: 'content',
+  child: ContentCard(),
+)
+```
+
+### Navigation Strategies
+
+| Strategy | Behavior |
+|----------|----------|
+| `geometric` | Flutter's default distance-based navigation |
+| `fixedEntry` | Always focus the widget marked as `isEntryPoint` |
+| `memory` | Restore last focused widget, fallback to entry point |
+| `custom` | Use custom resolver function |
+
 ### Custom Shortcuts
 
 ```dart

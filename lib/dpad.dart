@@ -2,7 +2,7 @@
 ///
 /// A simple yet powerful D-pad navigation system that makes Flutter development
 /// for Android TV, Fire TV, and other TV platforms as easy as native Android development.
-/// 
+///
 /// **Quick Setup - Just 3 Steps:**
 /// 1. Wrap your app with [DpadNavigator] - Enables global D-pad support
 /// 2. Wrap focusable widgets with [DpadFocusable] - Makes widgets respond to D-pad navigation
@@ -212,3 +212,4 @@ export 'src/focus/focus_effects.dart';
 export 'src/core/dpad_core.dart';
 export 'src/core/focus_history.dart';
 export 'src/core/focus_memory_options.dart';
+export 'src/core/region_navigation.dart';

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../core/dpad_core.dart';
 import '../core/focus_history.dart';
 import '../core/focus_memory_options.dart';
+import '../core/region_navigation.dart';
 
 /// Callback type for focus navigation back functionality.
 ///
@@ -61,16 +62,21 @@ class _DpadNavigatorScope extends InheritedWidget {
   /// The focus history manager instance for this navigator scope.
   final FocusHistoryManager? historyManager;
 
+  /// The region navigation manager instance for this navigator scope.
+  final RegionNavigationManager? regionManager;
+
   const _DpadNavigatorScope({
     required super.child,
     required this.focusMemory,
     required this.historyManager,
+    required this.regionManager,
   });
 
   @override
   bool updateShouldNotify(_DpadNavigatorScope oldWidget) {
     return focusMemory != oldWidget.focusMemory ||
-        historyManager != oldWidget.historyManager;
+        historyManager != oldWidget.historyManager ||
+        regionManager != oldWidget.regionManager;
   }
 
   /// Gets the nearest [_DpadNavigatorScope] from the widget tree.
@@ -145,6 +151,33 @@ class DpadNavigator extends StatefulWidget {
   /// Provides context information for user customization.
   final FocusNavigateBackCallback? onNavigateBack;
 
+  /// Region navigation configuration options.
+  ///
+  /// Used to configure cross-region navigation behavior for TV apps.
+  /// When enabled, navigation between regions can use custom strategies
+  /// like fixed entry points or memory-based restoration.
+  ///
+  /// Example:
+  /// ```dart
+  /// DpadNavigator(
+  ///   regionNavigation: RegionNavigationOptions(
+  ///     enabled: true,
+  ///     rules: [
+  ///       RegionNavigationRule(
+  ///         fromRegion: 'tabs',
+  ///         toRegion: 'content',
+  ///         direction: TraversalDirection.down,
+  ///         strategy: RegionNavigationStrategy.fixedEntry,
+  ///         bidirectional: true,
+  ///         reverseStrategy: RegionNavigationStrategy.memory,
+  ///       ),
+  ///     ],
+  ///   ),
+  ///   child: MyApp(),
+  /// )
+  /// ```
+  final RegionNavigationOptions? regionNavigation;
+
   /// Creates a [DpadNavigator] widget.
   ///
   /// The [child] parameter is required. All other parameters are optional.
@@ -169,6 +202,7 @@ class DpadNavigator extends StatefulWidget {
     this.onBackPressed,
     this.focusMemory,
     this.onNavigateBack,
+    this.regionNavigation,
   });
 
   /// Gets the focus memory options from the nearest [DpadNavigator].
@@ -203,6 +237,23 @@ class DpadNavigator extends StatefulWidget {
     return _DpadNavigatorScope.maybeOf(context)?.historyManager;
   }
 
+  /// Gets the region navigation manager from the nearest [DpadNavigator].
+  ///
+  /// Returns null if no [DpadNavigator] is found or region navigation is not enabled.
+  /// Each [DpadNavigator] has its own isolated region manager instance.
+  ///
+  /// **Example:**
+  /// ```dart
+  /// final regionManager = DpadNavigator.regionManagerOf(context);
+  /// if (regionManager != null) {
+  ///   final nodes = regionManager.getNodesInRegion('tabs');
+  ///   final entryPoint = regionManager.getEntryPointForRegion('content');
+  /// }
+  /// ```
+  static RegionNavigationManager? regionManagerOf(BuildContext context) {
+    return _DpadNavigatorScope.maybeOf(context)?.regionManager;
+  }
+
   @override
   State<DpadNavigator> createState() => _DpadNavigatorState();
 }
@@ -210,6 +261,9 @@ class DpadNavigator extends StatefulWidget {
 class _DpadNavigatorState extends State<DpadNavigator> {
   /// The focus history manager for this navigator instance.
   FocusHistoryManager? _historyManager;
+
+  /// The region navigation manager for this navigator instance.
+  RegionNavigationManager? _regionManager;
 
   @override
   void initState() {
@@ -220,28 +274,51 @@ class _DpadNavigatorState extends State<DpadNavigator> {
         maxSize: widget.focusMemory!.maxHistory,
       );
     }
+    // Initialize region navigation manager
+    if (widget.regionNavigation?.enabled == true) {
+      _regionManager = RegionNavigationManager(
+        options: widget.regionNavigation!,
+      );
+    }
   }
 
   @override
   void didUpdateWidget(DpadNavigator oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    final wasEnabled = oldWidget.focusMemory?.enabled == true;
-    final isEnabled = widget.focusMemory?.enabled == true;
+    // Handle focus memory changes
+    final wasMemoryEnabled = oldWidget.focusMemory?.enabled == true;
+    final isMemoryEnabled = widget.focusMemory?.enabled == true;
 
-    if (!wasEnabled && isEnabled) {
-      // Focus memory was just enabled, create manager
+    if (!wasMemoryEnabled && isMemoryEnabled) {
       _historyManager = FocusHistoryManager(
         maxSize: widget.focusMemory!.maxHistory,
       );
-    } else if (wasEnabled && !isEnabled) {
-      // Focus memory was just disabled, dispose manager
+    } else if (wasMemoryEnabled && !isMemoryEnabled) {
       _historyManager?.clear();
       _historyManager = null;
-    } else if (isEnabled &&
+    } else if (isMemoryEnabled &&
         widget.focusMemory?.maxHistory != oldWidget.focusMemory?.maxHistory) {
-      // Only update max size if it changed
       _historyManager?.setMaxSize(widget.focusMemory!.maxHistory);
+    }
+
+    // Handle region navigation changes
+    final wasRegionEnabled = oldWidget.regionNavigation?.enabled == true;
+    final isRegionEnabled = widget.regionNavigation?.enabled == true;
+
+    if (!wasRegionEnabled && isRegionEnabled) {
+      _regionManager = RegionNavigationManager(
+        options: widget.regionNavigation!,
+      );
+    } else if (wasRegionEnabled && !isRegionEnabled) {
+      _regionManager?.clear();
+      _regionManager = null;
+    } else if (isRegionEnabled &&
+        widget.regionNavigation != oldWidget.regionNavigation) {
+      // Update manager when options change
+      _regionManager = RegionNavigationManager(
+        options: widget.regionNavigation!,
+      );
     }
   }
 
@@ -249,6 +326,8 @@ class _DpadNavigatorState extends State<DpadNavigator> {
   void dispose() {
     _historyManager?.clear();
     _historyManager = null;
+    _regionManager?.clear();
+    _regionManager = null;
     super.dispose();
   }
 
@@ -259,11 +338,27 @@ class _DpadNavigatorState extends State<DpadNavigator> {
       return widget.child;
     }
 
+    // Build the child widget tree
+    Widget child = CallbackShortcuts(
+      bindings: _buildBindings(),
+      child: widget.child,
+    );
+
+    // Wrap with region traversal scope if region navigation is enabled
+    if (_regionManager != null && widget.regionNavigation?.enabled == true) {
+      child = RegionTraversalGroupScope(
+        regionManager: _regionManager,
+        getLastFocusInRegion: _getLastFocusInRegion,
+        child: child,
+      );
+    }
+
     // Wrap with Focus widget to handle key events
     // Note: We don't request focus here to let child widgets manage focus
     return _DpadNavigatorScope(
       focusMemory: widget.focusMemory,
       historyManager: _historyManager,
+      regionManager: _regionManager,
       child: Focus(
         // Don't autofocus to prevent stealing focus from child widgets
         onKeyEvent: (node, event) {
@@ -280,10 +375,7 @@ class _DpadNavigatorState extends State<DpadNavigator> {
           }
           return KeyEventResult.ignored;
         },
-        child: CallbackShortcuts(
-          bindings: _buildBindings(),
-          child: widget.child,
-        ),
+        child: child,
       ),
     );
   }
@@ -344,18 +436,45 @@ class _DpadNavigatorState extends State<DpadNavigator> {
 
   /// Navigates focus in the specified direction using Flutter's native focus system.
   ///
-  /// This method leverages Flutter's built-in focus traversal system,
-  /// ensuring compatibility with all Flutter widgets and proper focus management.
+  /// This method first checks if region-based navigation should be used,
+  /// then falls back to Flutter's built-in focus traversal system.
   ///
   /// **Parameters:**
   /// - [direction]: The direction to navigate (up, down, left, right)
   void _navigate(TraversalDirection direction) {
-    // Get the current focused widget's context
-    final currentContext = FocusManager.instance.primaryFocus?.context;
+    final currentFocus = FocusManager.instance.primaryFocus;
+    if (currentFocus == null) return;
+
+    // Try region-based navigation first
+    if (_regionManager != null && widget.regionNavigation?.enabled == true) {
+      final targetNode = _regionManager!.handleNavigation(
+        currentFocus,
+        direction,
+        _getLastFocusInRegion,
+      );
+
+      if (targetNode != null && targetNode.canRequestFocus) {
+        targetNode.requestFocus();
+        return;
+      }
+    }
+
+    // Fall back to Flutter's native focus navigation
+    final currentContext = currentFocus.context;
     if (currentContext != null) {
-      // Use Flutter's native focus navigation for proper focus traversal
       FocusScope.of(currentContext).focusInDirection(direction);
     }
+  }
+
+  /// Gets the last focused node in a specific region from history.
+  FocusNode? _getLastFocusInRegion(String region) {
+    if (_historyManager == null) return null;
+
+    final entry = _historyManager!.getLastFocusInRegion(region);
+    if (entry != null && entry.isValid) {
+      return entry.focusNode;
+    }
+    return null;
   }
 
   /// Triggers the selection action on the currently focused widget.

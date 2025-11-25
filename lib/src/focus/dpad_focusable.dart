@@ -147,6 +147,25 @@ class DpadFocusable extends StatefulWidget {
   /// Defaults to `24.0`.
   final double scrollPadding;
 
+  /// Whether this widget is the entry point for its region.
+  ///
+  /// When [RegionNavigationStrategy.fixedEntry] is used, navigation to
+  /// this region will focus on the entry point widget.
+  ///
+  /// Only one widget per region should be marked as entry point.
+  /// If multiple widgets are marked, the one with highest [entryPriority] is used.
+  ///
+  /// Defaults to `false`.
+  final bool isEntryPoint;
+
+  /// Priority for entry point selection.
+  ///
+  /// Higher values are preferred when multiple entry points exist in a region.
+  /// Only used when [isEntryPoint] is `true`.
+  ///
+  /// Defaults to `0`.
+  final int entryPriority;
+
   /// Creates a [DpadFocusable] widget.
   ///
   /// Either [child] or [builder] must be provided.
@@ -164,6 +183,8 @@ class DpadFocusable extends StatefulWidget {
     this.region,
     this.autoScroll = true,
     this.scrollPadding = 24.0,
+    this.isEntryPoint = false,
+    this.entryPriority = 0,
   });
 
   @override
@@ -184,6 +205,13 @@ class _DpadFocusableState extends State<DpadFocusable> {
 
     _focusNode.addListener(_onFocusChange);
 
+    // Register with region navigation manager after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _registerWithRegionManager();
+      }
+    });
+
     if (widget.autofocus) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -192,6 +220,35 @@ class _DpadFocusableState extends State<DpadFocusable> {
           // This prevents duplicate recording for autofocus widgets
         }
       });
+    }
+  }
+
+  /// Registers this widget with the region navigation manager.
+  void _registerWithRegionManager() {
+    if (widget.region == null) return;
+
+    final regionManager = DpadNavigator.regionManagerOf(context);
+    if (regionManager == null) return;
+
+    regionManager.registerNode(
+      widget.region!,
+      _focusNode,
+      isEntryPoint: widget.isEntryPoint,
+      entryPriority: widget.entryPriority,
+      debugLabel: widget.debugLabel,
+    );
+  }
+
+  /// Unregisters this widget from the region navigation manager.
+  void _unregisterFromRegionManager() {
+    if (widget.region == null) return;
+
+    // Try to get manager without depending on it (might already be disposed)
+    try {
+      final regionManager = DpadNavigator.regionManagerOf(context);
+      regionManager?.unregisterNode(_focusNode);
+    } catch (_) {
+      // Context might be invalid during disposal
     }
   }
 
@@ -210,6 +267,7 @@ class _DpadFocusableState extends State<DpadFocusable> {
 
   @override
   void dispose() {
+    _unregisterFromRegionManager();
     _focusNode.removeListener(_onFocusChange);
 
     if (_focusNode.hasFocus) {

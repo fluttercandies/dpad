@@ -261,6 +261,72 @@ DpadFocusable(
 - **筛选导航**：筛选A → 浏览 → 筛选A → 返回 → 筛选A（恢复到之前的筛选）
 - **跨路由导航**：为每个路由维护独立的焦点历史
 
+## 🎯 区域导航 (v2.0.0 新功能)
+
+区域导航解决了 Flutter 默认几何距离导航不符合用户预期的常见 TV UX 问题。
+
+### 问题
+
+使用 Flutter 默认导航时：
+- Tab → 内容：可能根据距离聚焦到任意卡片
+- 内容 → Tab：可能跳转到意外的 Tab
+- 侧边栏 → 网格：焦点可能落在任何位置
+
+### 解决方案
+
+```dart
+DpadNavigator(
+  regionNavigation: RegionNavigationOptions(
+    enabled: true,
+    rules: [
+      // Tab → 内容：总是聚焦第一张卡片
+      RegionNavigationRule(
+        fromRegion: 'tabs',
+        toRegion: 'content',
+        direction: TraversalDirection.down,
+        strategy: RegionNavigationStrategy.fixedEntry,
+        bidirectional: true,
+        reverseStrategy: RegionNavigationStrategy.memory,
+      ),
+      // 侧边栏 → 网格：总是聚焦第一张卡片
+      RegionNavigationRule(
+        fromRegion: 'sidebar',
+        toRegion: 'grid',
+        direction: TraversalDirection.right,
+        strategy: RegionNavigationStrategy.fixedEntry,
+      ),
+    ],
+  ),
+  child: MyApp(),
+)
+```
+
+### 标记入口点
+
+```dart
+// 内容区域的第一张卡片 - 入口点
+DpadFocusable(
+  region: 'content',
+  isEntryPoint: true,
+  child: ContentCard(),
+)
+
+// 同一区域的其他卡片
+DpadFocusable(
+  region: 'content',
+  child: ContentCard(),
+)
+```
+
+### 导航策略
+
+| 策略 | 行为 |
+|------|------|
+| `geometric` | Flutter 默认的基于距离的导航 |
+| `fixedEntry` | 总是聚焦标记为 `isEntryPoint` 的组件 |
+| `memory` | 恢复上次聚焦的组件，回退到入口点 |
+| `custom` | 使用自定义解析函数 |
+
 ### 自定义快捷键
 
 ```dart

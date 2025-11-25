@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2025-11-25
+
+### Added
+- **Region-based Navigation System**: A completely new navigation paradigm for TV apps
+  - `RegionNavigationOptions` for configuring cross-region navigation behavior
+  - `RegionNavigationRule` for defining navigation rules between regions
+  - `RegionNavigationStrategy` enum with 4 strategies:
+    - `geometric`: Flutter's default distance-based navigation
+    - `fixedEntry`: Always focus the entry point widget
+    - `memory`: Restore last focused widget in target region
+    - `custom`: User-defined navigation logic
+  - `RegionNavigationManager` for managing region registrations
+  - `isEntryPoint` and `entryPriority` properties in `DpadFocusable`
+  - Bidirectional rules support with `bidirectional` and `reverseStrategy`
+
+- **Flutter System API Integration**:
+  - `RegionAwareFocusTraversalPolicy` extending `ReadingOrderTraversalPolicy`
+  - `RegionTraversalGroup` widget for wrapping with custom policy
+  - `RegionTraversalGroupScope` InheritedWidget for passing manager
+  - Uses `FocusScope.focusInDirection()` for native navigation
+
+### Improved
+- Better integration with Flutter's native focus traversal system
+- Enhanced `DpadNavigator.regionManagerOf()` for accessing region manager
+- Automatic region manager updates when options change
+
+### Breaking Changes
+- This is a major version update with new APIs
+- Existing code using v1.x should continue to work without changes
+
 ## [1.2.2] - 2025-11-25
 
 ### Added
