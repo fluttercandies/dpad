@@ -50,6 +50,37 @@ typedef FocusNavigateBackCallback = KeyEventResult Function(
 /// - Custom keyboard shortcuts
 /// - Platform-specific key handling
 /// - Seamless Flutter focus integration
+/// InheritedWidget that provides access to DpadNavigator configuration.
+///
+/// This allows descendant widgets to efficiently access the navigator's
+/// configuration without traversing the widget tree manually.
+class _DpadNavigatorScope extends InheritedWidget {
+  /// The focus memory configuration.
+  final FocusMemoryOptions? focusMemory;
+
+  /// The focus history manager instance for this navigator scope.
+  final FocusHistoryManager? historyManager;
+
+  const _DpadNavigatorScope({
+    required super.child,
+    required this.focusMemory,
+    required this.historyManager,
+  });
+
+  @override
+  bool updateShouldNotify(_DpadNavigatorScope oldWidget) {
+    return focusMemory != oldWidget.focusMemory ||
+        historyManager != oldWidget.historyManager;
+  }
+
+  /// Gets the nearest [_DpadNavigatorScope] from the widget tree.
+  ///
+  /// Returns null if no [DpadNavigator] is found in the ancestor tree.
+  static _DpadNavigatorScope? maybeOf(BuildContext context) {
+    return context.dependOnInheritedWidgetOfExactType<_DpadNavigatorScope>();
+  }
+}
+
 class DpadNavigator extends StatefulWidget {
   /// The child widget that will have D-pad navigation support.
   ///
@@ -140,28 +171,85 @@ class DpadNavigator extends StatefulWidget {
     this.onNavigateBack,
   });
 
+  /// Gets the focus memory options from the nearest [DpadNavigator].
+  ///
+  /// Returns null if no [DpadNavigator] is found or focus memory is not configured.
+  ///
+  /// **Example:**
+  /// ```dart
+  /// final focusMemory = DpadNavigator.focusMemoryOf(context);
+  /// if (focusMemory?.enabled == true) {
+  ///   // Focus memory is enabled
+  /// }
+  /// ```
+  static FocusMemoryOptions? focusMemoryOf(BuildContext context) {
+    return _DpadNavigatorScope.maybeOf(context)?.focusMemory;
+  }
+
+  /// Gets the focus history manager from the nearest [DpadNavigator].
+  ///
+  /// Returns null if no [DpadNavigator] is found or focus memory is not enabled.
+  /// Each [DpadNavigator] has its own isolated history manager instance.
+  ///
+  /// **Example:**
+  /// ```dart
+  /// final history = DpadNavigator.historyOf(context);
+  /// if (history != null) {
+  ///   final current = history.getCurrent();
+  ///   final previous = history.getPrevious();
+  /// }
+  /// ```
+  static FocusHistoryManager? historyOf(BuildContext context) {
+    return _DpadNavigatorScope.maybeOf(context)?.historyManager;
+  }
+
   @override
   State<DpadNavigator> createState() => _DpadNavigatorState();
 }
 
 class _DpadNavigatorState extends State<DpadNavigator> {
+  /// The focus history manager for this navigator instance.
+  FocusHistoryManager? _historyManager;
+
   @override
   void initState() {
     super.initState();
-    // Initialize focus history only once when widget is created
+    // Initialize focus history manager only when focus memory is enabled
     if (widget.focusMemory?.enabled == true) {
-      FocusHistory.setMaxSize(widget.focusMemory!.maxHistory);
+      _historyManager = FocusHistoryManager(
+        maxSize: widget.focusMemory!.maxHistory,
+      );
     }
   }
 
   @override
   void didUpdateWidget(DpadNavigator oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Update focus history settings only if they change
-    if (widget.focusMemory?.enabled == true &&
+
+    final wasEnabled = oldWidget.focusMemory?.enabled == true;
+    final isEnabled = widget.focusMemory?.enabled == true;
+
+    if (!wasEnabled && isEnabled) {
+      // Focus memory was just enabled, create manager
+      _historyManager = FocusHistoryManager(
+        maxSize: widget.focusMemory!.maxHistory,
+      );
+    } else if (wasEnabled && !isEnabled) {
+      // Focus memory was just disabled, dispose manager
+      _historyManager?.clear();
+      _historyManager = null;
+    } else if (isEnabled &&
         widget.focusMemory?.maxHistory != oldWidget.focusMemory?.maxHistory) {
-      FocusHistory.setMaxSize(widget.focusMemory!.maxHistory);
+      // Only update max size if it changed
+      _historyManager?.setMaxSize(widget.focusMemory!.maxHistory);
     }
+  }
+
+  @override
+  void dispose() {
+    _historyManager?.clear();
+    _historyManager = null;
+    super.dispose();
   }
 
   @override
@@ -173,25 +261,29 @@ class _DpadNavigatorState extends State<DpadNavigator> {
 
     // Wrap with Focus widget to handle key events
     // Note: We don't request focus here to let child widgets manage focus
-    return Focus(
-      // Don't autofocus to prevent stealing focus from child widgets
-      onKeyEvent: (node, event) {
-        if (event is KeyDownEvent) {
-          // Handle special keys that don't use the shortcut system
-          if (event.logicalKey == LogicalKeyboardKey.escape ||
-              event.logicalKey == LogicalKeyboardKey.goBack) {
-            return _handleNavigateBack(context);
+    return _DpadNavigatorScope(
+      focusMemory: widget.focusMemory,
+      historyManager: _historyManager,
+      child: Focus(
+        // Don't autofocus to prevent stealing focus from child widgets
+        onKeyEvent: (node, event) {
+          if (event is KeyDownEvent) {
+            // Handle special keys that don't use the shortcut system
+            if (event.logicalKey == LogicalKeyboardKey.escape ||
+                event.logicalKey == LogicalKeyboardKey.goBack) {
+              return _handleNavigateBack(context);
+            }
+            if (event.logicalKey == LogicalKeyboardKey.contextMenu) {
+              widget.onMenuPressed?.call();
+              return KeyEventResult.handled;
+            }
           }
-          if (event.logicalKey == LogicalKeyboardKey.contextMenu) {
-            widget.onMenuPressed?.call();
-            return KeyEventResult.handled;
-          }
-        }
-        return KeyEventResult.ignored;
-      },
-      child: CallbackShortcuts(
-        bindings: _buildBindings(),
-        child: widget.child,
+          return KeyEventResult.ignored;
+        },
+        child: CallbackShortcuts(
+          bindings: _buildBindings(),
+          child: widget.child,
+        ),
       ),
     );
   }
@@ -310,22 +402,24 @@ class _DpadNavigatorState extends State<DpadNavigator> {
   /// [context] The current build context
   /// Returns KeyEventResult.handled if processed, ignored for system default behavior
   KeyEventResult _handleNavigateBack(BuildContext context) {
-    // If focus memory is disabled or no callback, use original logic
-    if (widget.focusMemory?.enabled != true) {
+    // If focus memory is disabled or no history manager, use original logic
+    if (widget.focusMemory?.enabled != true || _historyManager == null) {
       widget.onBackPressed?.call();
       return KeyEventResult.handled;
     }
 
-    // Get previous focus and complete history
-    FocusHistory.cleanup();
+    final historyManager = _historyManager!;
 
-    FocusHistoryEntry? previousEntry = FocusHistory.pop();
-    final history = FocusHistory.getHistory();
+    // Get previous focus and complete history
+    historyManager.cleanup();
+
+    FocusHistoryEntry? previousEntry = historyManager.pop();
+    final history = historyManager.getHistory();
 
     final primaryFocus = FocusManager.instance.primaryFocus;
     if (primaryFocus != null && previousEntry?.focusNode == primaryFocus) {
       // Avoid returning the same entry
-      previousEntry = FocusHistory.pop();
+      previousEntry = historyManager.pop();
     }
 
     final onNavigateBack = widget.onNavigateBack;
@@ -340,9 +434,6 @@ class _DpadNavigatorState extends State<DpadNavigator> {
 
     // If user handled the back key, restore previous focus safely
     if (previousEntry != null) {
-      // Note: FocusHistory.pop() should be called in the user callback
-      // as we don't know if they want to pop or just temporarily restore
-
       // Use the new safe focus request method
       final focusSuccess = previousEntry.requestFocusSafely();
 

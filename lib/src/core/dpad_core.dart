@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../navigation/dpad_navigator.dart';
 import 'focus_history.dart';
 
 /// Utility class providing convenient methods for programmatic D-pad navigation.
@@ -25,10 +26,10 @@ import 'focus_history.dart';
 /// // Clear all focus
 /// Dpad.clearFocus();
 ///
-/// // Focus memory utilities
-/// final previousEntry = Dpad.getPreviousFocus();
-/// final currentEntry = Dpad.getCurrentFocusEntry();
-/// final history = Dpad.getFocusHistory();
+/// // Focus memory utilities (requires context for navigator-scoped history)
+/// final previousEntry = Dpad.getPreviousFocus(context);
+/// final currentEntry = Dpad.getCurrentFocusEntry(context);
+/// final history = Dpad.getFocusHistory(context);
 /// ```
 ///
 /// **Use Cases:**
@@ -233,65 +234,77 @@ final class Dpad {
 
   /// Gets the current focus entry with complete information.
   ///
-  /// Returns the current focus entry with region, route, and other metadata.
+  /// Uses the navigator-scoped history manager from the given context.
   ///
-  /// **Returns:** The current focus entry, or null if no focus
+  /// **Parameters:**
+  /// - [context]: BuildContext for navigator-scoped history
+  ///
+  /// **Returns:** The current focus entry, or null if no focus or no navigator found
   ///
   /// **Example:**
   /// ```dart
-  /// final currentEntry = Dpad.getCurrentFocusEntry();
+  /// final currentEntry = Dpad.getCurrentFocusEntry(context);
   /// if (currentEntry != null) {
   ///   // Current region: ${currentEntry.region}
   /// }
   /// ```
-  static FocusHistoryEntry? getCurrentFocusEntry() {
-    return FocusHistory.getCurrent();
+  static FocusHistoryEntry? getCurrentFocusEntry(BuildContext context) {
+    return DpadNavigator.historyOf(context)?.getCurrent();
   }
 
   /// Gets the previous focus entry for memory restoration.
   ///
-  /// Returns the entry before the current one, used for focus memory restoration.
+  /// Uses the navigator-scoped history manager from the given context.
   ///
-  /// **Returns:** The previous focus entry, or null if none exists
+  /// **Parameters:**
+  /// - [context]: BuildContext for navigator-scoped history
+  ///
+  /// **Returns:** The previous focus entry, or null if none exists or no navigator found
   ///
   /// **Example:**
   /// ```dart
-  /// final previousEntry = Dpad.getPreviousFocus();
+  /// final previousEntry = Dpad.getPreviousFocus(context);
   /// if (previousEntry != null) {
   ///   // Previous region: ${previousEntry.region}
   /// }
   /// ```
-  static FocusHistoryEntry? getPreviousFocus() {
-    return FocusHistory.getPrevious();
+  static FocusHistoryEntry? getPreviousFocus(BuildContext context) {
+    return DpadNavigator.historyOf(context)?.getPrevious();
   }
 
   /// Gets the complete focus history as a list.
   ///
-  /// Returns the complete focus history stack for analysis and custom logic.
+  /// Uses the navigator-scoped history manager from the given context.
   ///
-  /// **Returns:** Complete list of focus history entries
+  /// **Parameters:**
+  /// - [context]: BuildContext for navigator-scoped history
+  ///
+  /// **Returns:** Complete list of focus history entries, empty if no navigator found
   ///
   /// **Example:**
   /// ```dart
-  /// final history = Dpad.getFocusHistory();
+  /// final history = Dpad.getFocusHistory(context);
   /// for (final entry in history) {
   ///   // Region: ${entry.region}, Route: ${entry.routeName}
   /// }
   /// ```
-  static List<FocusHistoryEntry> getFocusHistory() {
-    return FocusHistory.getHistory();
+  static List<FocusHistoryEntry> getFocusHistory(BuildContext context) {
+    return DpadNavigator.historyOf(context)?.getHistory() ?? [];
   }
 
   /// Clears all focus history entries and resets the memory state.
   ///
-  /// Clears all recorded focus history, resetting the focus memory state.
+  /// Uses the navigator-scoped history manager from the given context.
+  ///
+  /// **Parameters:**
+  /// - [context]: BuildContext for navigator-scoped history
   ///
   /// **Example:**
   /// ```dart
-  /// Dpad.clearFocusHistory();
+  /// Dpad.clearFocusHistory(context);
   /// ```
-  static void clearFocusHistory() {
-    FocusHistory.clear();
+  static void clearFocusHistory(BuildContext context) {
+    DpadNavigator.historyOf(context)?.clear();
   }
 
   /// Scrolls to focused widget using Flutter's built-in ensureVisible method.

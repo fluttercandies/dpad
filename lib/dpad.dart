@@ -130,7 +130,7 @@
 ///         decoration: BoxDecoration(
 ///           boxShadow: isFocused ? [
 ///             BoxShadow(
-///               color: Colors.blue.withValues(alpha: 0.6),
+///               color: Colors.blue.withOpacity(0.6),
 ///               blurRadius: 20,
 ///               spreadRadius: 2,
 ///             ),

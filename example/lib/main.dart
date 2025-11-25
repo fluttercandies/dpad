@@ -31,20 +31,8 @@ void main() {
       customShortcuts: {
         LogicalKeyboardKey.keyN: () => debugPrint('Next button pressed'),
         LogicalKeyboardKey.keyP: () => debugPrint('Previous button pressed'),
-        LogicalKeyboardKey.keyH: () => debugPrint(
-            'Focus history: ${Dpad.getFocusHistory().length} entries'),
-        LogicalKeyboardKey.keyC: () {
-          debugPrint('Clearing focus history');
-          Dpad.clearFocusHistory();
-        },
         LogicalKeyboardKey.keyM: () => debugPrint('Menu toggle'),
         LogicalKeyboardKey.keyS: () => debugPrint('Settings shortcut'),
-        LogicalKeyboardKey.keyD: () {
-          final current = Dpad.getCurrentFocusEntry();
-          final previous = Dpad.getPreviousFocus();
-          debugPrint(
-              'Current focus: ${current?.debugLabel ?? "null"}, Previous: ${previous?.debugLabel ?? "null"}');
-        },
       },
       child: MaterialApp(
         theme: ThemeData.dark(useMaterial3: true).copyWith(
@@ -237,7 +225,7 @@ class _ModernTVInterfaceState extends State<ModernTVInterface> {
   Widget _buildSidebar() {
     return Container(
       width: 96,
-      color: Colors.black.withValues(alpha: 0.3),
+      color: Colors.black.withOpacity(0.3),
       padding: const EdgeInsets.symmetric(vertical: 24),
       child: Column(
         children: [
@@ -354,7 +342,7 @@ class _ModernTVInterfaceState extends State<ModernTVInterface> {
             begin: Alignment.bottomCenter,
             end: Alignment.topCenter,
             colors: [
-              Colors.black.withValues(alpha: 0.8),
+              Colors.black.withOpacity(0.8),
               Colors.transparent,
             ],
           ),

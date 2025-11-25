@@ -183,7 +183,7 @@ DpadFocusable(
 
 ## 🔧 Advanced Usage
 
-## 🧠 Focus Memory (New in v1.2.0)
+## 🧠 Focus Memory (Updated in v1.2.1)
 
 The focus memory system intelligently remembers user's focus positions and restores them when navigating back, providing a more natural TV navigation experience.
 

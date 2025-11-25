@@ -155,9 +155,6 @@ class DpadFocusable extends StatefulWidget {
 class _DpadFocusableState extends State<DpadFocusable> {
   late FocusNode _focusNode;
 
-  /// Flag to prevent duplicate history recording during focus restoration
-  bool _isRestoringFocus = false;
-
   @override
   void initState() {
     super.initState();
@@ -221,20 +218,23 @@ class _DpadFocusableState extends State<DpadFocusable> {
 
   /// Records focus to history stack.
   void _recordFocusToHistory() {
-    final navigator = _findNavigator(context);
-    if (navigator == null) return;
-
-    final memory = navigator.focusMemory;
+    // Use InheritedWidget for efficient access to focusMemory and historyManager
+    final memory = DpadNavigator.focusMemoryOf(context);
     if (memory == null || !memory.enabled) {
       return;
     }
 
-    final current = FocusHistory.getCurrent();
+    final historyManager = DpadNavigator.historyOf(context);
+    if (historyManager == null) {
+      return;
+    }
+
+    final current = historyManager.getCurrent();
     if (current?.focusNode == _focusNode) {
       return;
     }
 
-    final lastPoppedEntry = FocusHistory.getLastPoppedEntry();
+    final lastPoppedEntry = historyManager.getLastPoppedEntry();
     if (lastPoppedEntry?.focusNode == _focusNode) {
       // Skip recording - this focus was just restored from history
       return;
@@ -253,24 +253,7 @@ class _DpadFocusableState extends State<DpadFocusable> {
         debugLabel: widget.debugLabel,
       );
 
-      FocusHistory.push(entry);
-    }
-  }
-
-  /// Finds the nearest DpadNavigator widget.
-  DpadNavigator? _findNavigator(BuildContext context) {
-    try {
-      DpadNavigator? navigator;
-      context.visitAncestorElements((ancestor) {
-        if (ancestor.widget is DpadNavigator) {
-          navigator = ancestor.widget as DpadNavigator;
-          return false; // Stop traversing
-        }
-        return true; // Continue traversing
-      });
-      return navigator;
-    } catch (e) {
-      return null;
+      historyManager.push(entry);
     }
   }
 

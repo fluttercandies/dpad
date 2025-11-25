@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2025-11-25
+
+### Fixed
+- Improved focus memory safety by removing excessive FocusNode validation checks
+- Fixed context-based focus history retrieval in Dpad utility methods
+- Simplified FocusNode.isValid check for better performance and reliability
+- Updated DpadCore methods to require context parameter for navigator-scoped history
+- Fixed DpadNavigator scope isolation for independent focus history per navigator
+
+### Improved
+- Enhanced error handling for disposed FocusNode detection
+- Optimized focus restoration logic to avoid redundant validation
+- Streamlined example code by removing debug shortcuts for focus history
+- Updated documentation to reflect context-based API changes
+
 ## [1.2.0] - 2025-11-23
 
 ### Added
