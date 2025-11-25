@@ -131,6 +131,22 @@ class DpadFocusable extends StatefulWidget {
   /// Used for region identification and restoration in focus memory.
   final String? region;
 
+  /// Whether to automatically scroll to ensure the focused widget is visible.
+  ///
+  /// When set to `true`, the widget will automatically scroll into view
+  /// when it receives focus, ensuring focus effects are fully visible.
+  ///
+  /// Defaults to `true`.
+  final bool autoScroll;
+
+  /// Extra padding around the widget when auto-scrolling.
+  ///
+  /// This ensures focus effects like glow, shadows, or borders
+  /// are not clipped by the viewport edge.
+  ///
+  /// Defaults to `24.0`.
+  final double scrollPadding;
+
   /// Creates a [DpadFocusable] widget.
   ///
   /// Either [child] or [builder] must be provided.
@@ -146,6 +162,8 @@ class DpadFocusable extends StatefulWidget {
     this.debugLabel,
     this.builder,
     this.region,
+    this.autoScroll = true,
+    this.scrollPadding = 24.0,
   });
 
   @override
@@ -210,6 +228,16 @@ class _DpadFocusableState extends State<DpadFocusable> {
 
       // Record focus to history stack (if enabled)
       _recordFocusToHistory();
+
+      // Auto-scroll to ensure the focused widget is fully visible
+      // Use post-frame callback to ensure layout is complete
+      if (widget.autoScroll) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _focusNode.hasFocus) {
+            Dpad.scrollToFocus(_focusNode, padding: widget.scrollPadding);
+          }
+        });
+      }
     } else {
       widget.onBlur?.call();
     }

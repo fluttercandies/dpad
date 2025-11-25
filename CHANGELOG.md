@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2025-11-25
+
+### Added
+- Auto-scroll feature for `DpadFocusable` to ensure focused widgets are fully visible
+- `autoScroll` parameter to enable/disable auto-scroll (default: `true`)
+- `scrollPadding` parameter to control extra padding around focused widgets (default: `24.0`)
+- Smart scrolling algorithm that handles both horizontal and vertical scroll containers
+- `scrollToFocus()` method in `Dpad` utility class for programmatic scroll control
+
+### Improved
+- Focus effects like glow, shadows, and borders are now fully visible at viewport edges
+- Enhanced InheritedWidget pattern with `_DpadNavigatorScope` for O(1) ancestor lookup
+- Instance-based `FocusHistoryManager` per `DpadNavigator` for proper scope isolation
+- Better duplicate recording prevention with `lastPoppedEntry` tracking
+
+### Fixed
+- Focus glow being clipped when items are at the edge of scrollable containers
+
 ## [1.2.1] - 2025-11-25
 
 ### Fixed

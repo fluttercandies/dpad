@@ -183,7 +183,34 @@ DpadFocusable(
 
 ## 🔧 高级用法
 
-## 🧠 焦点记忆 (v1.2.1更新)
+### 📜 自动滚动 (v1.2.2 新功能)
+
+`DpadFocusable` 现在会自动滚动以确保焦点组件完全可见，包括发光、边框等焦点效果。
+
+```dart
+DpadFocusable(
+  autoScroll: true,           // 启用自动滚动（默认：true）
+  scrollPadding: 24.0,        // 焦点效果的额外边距（默认：24.0）
+  builder: FocusEffects.glow(glowColor: Colors.blue),
+  child: MyWidget(),
+)
+
+// 为特定组件禁用自动滚动
+DpadFocusable(
+  autoScroll: false,
+  child: MyWidget(),
+)
+
+// 程序化滚动控制
+Dpad.scrollToFocus(
+  focusNode,
+  padding: 32.0,
+  duration: Duration(milliseconds: 300),
+  curve: Curves.easeOutCubic,
+);
+```
+
+## 🧠 焦点记忆 (v1.2.2更新)
 
 焦点记忆系统智能记录用户的焦点位置，并在返回导航时恢复它们，提供更自然的电视导航体验。
 

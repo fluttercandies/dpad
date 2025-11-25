@@ -183,7 +183,34 @@ DpadFocusable(
 
 ## 🔧 Advanced Usage
 
-## 🧠 Focus Memory (Updated in v1.2.1)
+### 📜 Auto-Scroll (New in v1.2.2)
+
+`DpadFocusable` now automatically scrolls to ensure the focused widget is fully visible, including focus effects like glow and borders.
+
+```dart
+DpadFocusable(
+  autoScroll: true,           // Enable auto-scroll (default: true)
+  scrollPadding: 24.0,        // Extra padding for focus effects (default: 24.0)
+  builder: FocusEffects.glow(glowColor: Colors.blue),
+  child: MyWidget(),
+)
+
+// Disable auto-scroll for specific widgets
+DpadFocusable(
+  autoScroll: false,
+  child: MyWidget(),
+)
+
+// Programmatic scroll control
+Dpad.scrollToFocus(
+  focusNode,
+  padding: 32.0,
+  duration: Duration(milliseconds: 300),
+  curve: Curves.easeOutCubic,
+);
+```
+
+## 🧠 Focus Memory (Updated in v1.2.2)
 
 The focus memory system intelligently remembers user's focus positions and restores them when navigating back, providing a more natural TV navigation experience.
 

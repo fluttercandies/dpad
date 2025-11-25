@@ -307,26 +307,179 @@ final class Dpad {
     DpadNavigator.historyOf(context)?.clear();
   }
 
-  /// Scrolls to focused widget using Flutter's built-in ensureVisible method.
+  /// Scrolls to ensure the focused widget is fully visible with proper padding.
   ///
-  /// Uses the official Flutter SDK method to handle all scrolling logic.
-  /// Now includes safety checks to prevent issues with disposed FocusNodes.
+  /// This method intelligently scrolls to make the focused widget fully visible,
+  /// including any visual effects like focus glow, shadows, or borders.
+  /// It handles both horizontal and vertical scrolling, and ensures the widget
+  /// is not positioned at the edge of the viewport.
   ///
-  /// [focusNode] The focus node to scroll into view
-  static void scrollToFocus(FocusNode focusNode) {
+  /// **Features:**
+  /// - Adds padding around the focused widget to show focus effects
+  /// - Handles both horizontal and vertical scroll containers
+  /// - Positions the widget with comfortable margins from viewport edges
+  /// - Smooth animation with customizable duration and curve
+  ///
+  /// **Parameters:**
+  /// - [focusNode]: The focus node to scroll into view
+  /// - [padding]: Extra padding around the widget (default: 24.0)
+  /// - [duration]: Animation duration (default: 300ms)
+  /// - [curve]: Animation curve (default: Curves.easeOutCubic)
+  static void scrollToFocus(
+    FocusNode focusNode, {
+    double padding = 24.0,
+    Duration duration = const Duration(milliseconds: 300),
+    Curve curve = Curves.easeOutCubic,
+  }) {
     if (focusNode.context == null || !focusNode.canRequestFocus) return;
 
+    final context = focusNode.context!;
+
     try {
-      // Simply use Flutter's ensureVisible with center alignment
-      // Let Flutter handle all the edge detection and scrolling logic
-      Scrollable.ensureVisible(
-        focusNode.context!,
-        alignment: 0.4, // Slightly above center to avoid bottom edge issues
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOutCubic,
+      // Get the RenderObject of the focused widget
+      final renderObject = context.findRenderObject();
+      if (renderObject == null || renderObject is! RenderBox) return;
+
+      // Find all scrollable ancestors and scroll each one
+      _scrollAllAncestors(
+        context,
+        renderObject,
+        padding: padding,
+        duration: duration,
+        curve: curve,
       );
     } catch (e) {
-      // Silently fail if scrolling is not possible
+      // Fallback to simple ensureVisible if smart scrolling fails
+      try {
+        Scrollable.ensureVisible(
+          context,
+          alignment: 0.5,
+          duration: duration,
+          curve: curve,
+        );
+      } catch (_) {
+        // Silently fail if scrolling is not possible
+      }
+    }
+  }
+
+  /// Scrolls all scrollable ancestors to ensure the widget is visible.
+  static void _scrollAllAncestors(
+    BuildContext context,
+    RenderBox renderBox, {
+    required double padding,
+    required Duration duration,
+    required Curve curve,
+  }) {
+    // Find all Scrollable ancestors
+    final scrollables = <ScrollableState>[];
+    context.visitAncestorElements((element) {
+      if (element is StatefulElement && element.state is ScrollableState) {
+        scrollables.add(element.state as ScrollableState);
+      }
+      return true;
+    });
+
+    // Scroll each scrollable ancestor
+    for (final scrollable in scrollables) {
+      _scrollInScrollable(
+        scrollable,
+        renderBox,
+        padding: padding,
+        duration: duration,
+        curve: curve,
+      );
+    }
+  }
+
+  /// Scrolls within a specific scrollable to ensure the widget is visible.
+  static void _scrollInScrollable(
+    ScrollableState scrollable,
+    RenderBox targetRenderBox, {
+    required double padding,
+    required Duration duration,
+    required Curve curve,
+  }) {
+    final scrollableRenderBox =
+        scrollable.context.findRenderObject() as RenderBox?;
+    if (scrollableRenderBox == null) return;
+
+    final position = scrollable.position;
+    final axis = scrollable.axisDirection;
+    final isHorizontal =
+        axis == AxisDirection.left || axis == AxisDirection.right;
+
+    // Get the target's position relative to the scrollable
+    final targetOffset = targetRenderBox.localToGlobal(
+      Offset.zero,
+      ancestor: scrollableRenderBox,
+    );
+
+    // Get sizes
+    final targetSize = targetRenderBox.size;
+    final viewportSize = scrollableRenderBox.size;
+
+    // Calculate the target's bounds in the scrollable's coordinate system
+    final double targetStart;
+    final double targetEnd;
+    final double viewportExtent;
+
+    if (isHorizontal) {
+      targetStart = targetOffset.dx;
+      targetEnd = targetOffset.dx + targetSize.width;
+      viewportExtent = viewportSize.width;
+    } else {
+      targetStart = targetOffset.dy;
+      targetEnd = targetOffset.dy + targetSize.height;
+      viewportExtent = viewportSize.height;
+    }
+
+    // Calculate the ideal scroll offset to center the target with padding
+    final targetCenter = (targetStart + targetEnd) / 2;
+    final viewportCenter = viewportExtent / 2;
+
+    // Check if the target is already well-positioned
+    final minVisibleStart = padding;
+    final maxVisibleEnd = viewportExtent - padding;
+
+    // Target is fully visible with padding
+    if (targetStart >= minVisibleStart && targetEnd <= maxVisibleEnd) {
+      return; // No scrolling needed
+    }
+
+    // Calculate how much to scroll
+    double scrollDelta = 0.0;
+
+    if (targetEnd > maxVisibleEnd) {
+      // Target is cut off at the end - scroll forward
+      // Position the target so its end is at maxVisibleEnd
+      scrollDelta = targetEnd - maxVisibleEnd + padding;
+    } else if (targetStart < minVisibleStart) {
+      // Target is cut off at the start - scroll backward
+      // Position the target so its start is at minVisibleStart
+      scrollDelta = targetStart - minVisibleStart - padding;
+    }
+
+    // If target is larger than viewport, center it
+    final targetExtent = targetEnd - targetStart;
+    if (targetExtent + padding * 2 > viewportExtent) {
+      scrollDelta = targetCenter - viewportCenter;
+    }
+
+    // Calculate new scroll position
+    final currentOffset = position.pixels;
+    final newOffset = (currentOffset + scrollDelta).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+
+    // Only animate if there's actually a change
+    if ((newOffset - currentOffset).abs() > 0.5) {
+      position.animateTo(
+        newOffset,
+        duration: duration,
+        curve: curve,
+      );
     }
   }
 
