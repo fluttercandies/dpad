@@ -225,7 +225,7 @@ class _ModernTVInterfaceState extends State<ModernTVInterface> {
   Widget _buildSidebar() {
     return Container(
       width: 96,
-      color: Colors.black.withOpacity(0.3),
+      color: Colors.black.withOpacity(0.3), // ignore: deprecated_member_use
       padding: const EdgeInsets.symmetric(vertical: 24),
       child: Column(
         children: [
@@ -342,7 +342,7 @@ class _ModernTVInterfaceState extends State<ModernTVInterface> {
             begin: Alignment.bottomCenter,
             end: Alignment.topCenter,
             colors: [
-              Colors.black.withOpacity(0.8),
+              Colors.black.withOpacity(0.8), // ignore: deprecated_member_use
               Colors.transparent,
             ],
           ),

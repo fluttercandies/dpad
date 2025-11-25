@@ -165,7 +165,7 @@ DpadFocusable(
         decoration: BoxDecoration(
           boxShadow: isFocused ? [
             BoxShadow(
-              color: Colors.blue.withValues(alpha: 0.6),
+              color: Colors.blue.withValues(alpha: 0.6), // ignore: deprecated_member_use
               blurRadius: 20,
               spreadRadius: 2,
             ),

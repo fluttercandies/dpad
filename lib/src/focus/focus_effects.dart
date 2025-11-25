@@ -144,7 +144,7 @@ class FocusEffects {
           boxShadow: isFocused
               ? [
                   BoxShadow(
-                    color: color.withOpacity(0.6),
+                    color: color.withOpacity(0.6), // ignore: deprecated_member_use
                     blurRadius: blurRadius,
                     spreadRadius: spreadRadius,
                   ),
@@ -407,7 +407,7 @@ class FocusEffects {
     return (context, isFocused, child) {
       final tint = isFocused
           ? (focusedTint ??
-              Theme.of(context).colorScheme.primary.withOpacity(0.3))
+              Theme.of(context).colorScheme.primary.withOpacity(0.3)) // ignore: deprecated_member_use
           : unfocusedTint;
 
       return AnimatedContainer(
