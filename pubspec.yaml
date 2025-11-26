@@ -1,6 +1,6 @@
 name: dpad
 description: Flutter TV D-pad navigation system - as simple as native Android development
-version: 2.0.1
+version: 2.0.2
 homepage: https://github.com/fluttercandies/dpad
 repository: https://github.com/fluttercandies/dpad
 issue_tracker: https://github.com/fluttercandies/dpad/issues

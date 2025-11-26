@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:flutter/material.dart';
 
 /// Strategy for handling cross-region navigation.
@@ -288,7 +290,8 @@ class RegionNavigationManager {
   final RegionNavigationOptions options;
 
   /// Map of region identifiers to their registered focus nodes.
-  final Map<String, Set<FocusNode>> _regionNodes = {};
+  /// Uses LinkedHashSet to maintain insertion order for predictable fallback behavior.
+  final Map<String, LinkedHashSet<FocusNode>> _regionNodes = {};
 
   /// Map of region identifiers to their entry points.
   final Map<String, List<RegionEntryPoint>> _entryPoints = {};
@@ -310,8 +313,8 @@ class RegionNavigationManager {
     int entryPriority = 0,
     String? debugLabel,
   }) {
-    // Add to region set
-    _regionNodes.putIfAbsent(region, () => {});
+    // Add to region set (LinkedHashSet maintains insertion order)
+    _regionNodes.putIfAbsent(region, () => LinkedHashSet<FocusNode>());
     _regionNodes[region]!.add(focusNode);
 
     // Map node to region
@@ -356,22 +359,23 @@ class RegionNavigationManager {
   /// Gets the entry point focus node for a region.
   ///
   /// Returns the highest priority valid entry point, or null if none exists.
+  /// Falls back to the first registered node if no entry point is defined.
   FocusNode? getEntryPointForRegion(String region) {
     final entryPoints = _entryPoints[region];
-    if (entryPoints == null || entryPoints.isEmpty) {
-      // Fall back to first registered node in region
-      final nodes = getNodesInRegion(region);
-      return nodes.isNotEmpty ? nodes.first : null;
-    }
 
-    // Find first valid entry point
-    for (final entry in entryPoints) {
-      if (entry.isValid) {
-        return entry.focusNode;
+    // Try to find a valid entry point first
+    if (entryPoints != null && entryPoints.isNotEmpty) {
+      for (final entry in entryPoints) {
+        if (entry.isValid) {
+          return entry.focusNode;
+        }
       }
     }
 
-    return null;
+    // Fall back to first registered node in region
+    // LinkedHashSet maintains insertion order, so this returns the first registered node
+    final nodes = getNodesInRegion(region);
+    return nodes.isNotEmpty ? nodes.first : null;
   }
 
   /// Handles navigation from one region in a specific direction.
@@ -504,56 +508,44 @@ class RegionAwareFocusTraversalPolicy extends ReadingOrderTraversalPolicy {
       return super.inDirection(currentNode, direction);
     }
 
-    // Try to find the next node using default directional logic first
-    final defaultTarget = _findNextNodeUsingSuper(currentNode, direction);
+    // STEP 1: Try to find a node in the SAME region first
+    final sameRegionTarget = _findNextNodeInSameRegion(
+      currentNode,
+      direction,
+      manager,
+      currentRegion,
+    );
 
-    if (defaultTarget != null) {
-      // Check if the default navigation stays within the same region
-      final targetRegion = manager.getRegionForNode(defaultTarget);
-
-      // If target is in the same region, use default navigation
-      if (targetRegion == currentRegion) {
-        requestFocusCallback(
-          defaultTarget,
-          alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
-        );
-        return true;
-      }
-
-      // Default navigation would cross regions - check if we have a rule
-      final ruleTarget = manager.handleNavigation(
-        currentNode,
-        direction,
-        getLastFocusInRegion,
-      );
-
-      if (ruleTarget != null) {
-        // Use the rule-specified target instead of default
-        requestFocusCallback(
-          ruleTarget,
-          alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
-        );
-        return true;
-      }
-
-      // No rule, use the default navigation result
+    if (sameRegionTarget != null) {
+      // Found a node in the same region, use it
       requestFocusCallback(
-        defaultTarget,
+        sameRegionTarget,
         alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
       );
       return true;
     }
 
-    // Default navigation found nothing in same region, try region-based navigation
-    final targetNode = manager.handleNavigation(
+    // STEP 2: No node in same region, check for cross-region rules
+    final ruleTarget = manager.handleNavigation(
       currentNode,
       direction,
       getLastFocusInRegion,
     );
 
-    if (targetNode != null) {
+    if (ruleTarget != null) {
+      // Use the rule-specified target
       requestFocusCallback(
-        targetNode,
+        ruleTarget,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
+      );
+      return true;
+    }
+
+    // STEP 3: No rule, try geometric navigation to any region
+    final geometricTarget = _findNextNodeUsingGeometric(currentNode, direction);
+    if (geometricTarget != null) {
+      requestFocusCallback(
+        geometricTarget,
         alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
       );
       return true;
@@ -563,26 +555,62 @@ class RegionAwareFocusTraversalPolicy extends ReadingOrderTraversalPolicy {
     return super.inDirection(currentNode, direction);
   }
 
-  /// Finds the next focus node using the parent's directional logic.
-  ///
-  /// This simulates what super.inDirection would do, but returns the
-  /// target node instead of focusing it.
-  FocusNode? _findNextNodeUsingSuper(
+  /// Finds the next focus node in the SAME region using geometric calculation.
+  FocusNode? _findNextNodeInSameRegion(
+    FocusNode currentNode,
+    TraversalDirection direction,
+    RegionNavigationManager manager,
+    String currentRegion,
+  ) {
+    // Get all nodes in the same region
+    final nodesInRegion = manager.getNodesInRegion(currentRegion);
+    if (nodesInRegion.isEmpty) return null;
+
+    final currentRect = currentNode.rect;
+    FocusNode? bestNode;
+    double bestScore = double.infinity;
+
+    for (final candidate in nodesInRegion) {
+      if (candidate == currentNode) continue;
+      if (!candidate.canRequestFocus) continue;
+
+      final candidateRect = candidate.rect;
+
+      // Check if candidate is in the correct direction
+      if (!_isInDirection(currentRect, candidateRect, direction)) {
+        continue;
+      }
+
+      // Calculate distance score
+      final score = _calculateDirectionalScore(
+        currentRect,
+        candidateRect,
+        direction,
+      );
+
+      if (score < bestScore) {
+        bestScore = score;
+        bestNode = candidate;
+      }
+    }
+
+    return bestNode;
+  }
+
+  /// Finds the next focus node using geometric calculation across all regions.
+  FocusNode? _findNextNodeUsingGeometric(
     FocusNode currentNode,
     TraversalDirection direction,
   ) {
     final nearestScope = currentNode.nearestScope;
     if (nearestScope == null) return null;
 
-    final focusedChild = nearestScope.focusedChild;
-    if (focusedChild == null) return null;
-
     final sortedNodes = _getSortedNodesInScope(nearestScope);
     if (sortedNodes.isEmpty) return null;
 
     // Use geometric calculation to find the next node
     return _findNextNodeInDirection(
-      focusedChild,
+      currentNode, // Use currentNode, not focusedChild
       sortedNodes,
       direction,
     );

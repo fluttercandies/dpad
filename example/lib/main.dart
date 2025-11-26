@@ -86,7 +86,7 @@ class _DpadExampleAppState extends State<DpadExampleApp> {
         }
       },
       onMenuPressed: () {
-        debugPrint('Menu pressed - show app menu');
+        // Handle menu button press
       },
       customShortcuts: {
         LogicalKeyboardKey.keyH: () {

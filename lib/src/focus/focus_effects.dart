@@ -275,16 +275,14 @@ class FocusEffects {
     Duration duration = const Duration(milliseconds: 200),
   }) {
     return (context, isFocused, child) {
-      if (child == null) {
-        throw FlutterError('FocusEffects.elevation: child cannot be null');
-      }
       return AnimatedPhysicalModel(
         duration: duration,
         elevation: isFocused ? focusedElevation : unfocusedElevation,
         color: Colors.transparent,
+        shape: BoxShape.rectangle,
         shadowColor: shadowColor ?? Colors.black,
         borderRadius: borderRadius ?? BorderRadius.circular(8),
-        child: child,
+        child: child!,
       );
     };
   }

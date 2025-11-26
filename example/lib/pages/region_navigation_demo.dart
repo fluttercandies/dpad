@@ -115,18 +115,33 @@ class RegionNavigationDemo extends StatelessWidget {
               ),
             ),
 
-            // Tabs region
+            // Tabs region - 10 tabs to demonstrate memory strategy
             Container(
               padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
                   _buildLabel('Tabs Region', Colors.purple),
                   const SizedBox(width: 16),
-                  for (int i = 1; i <= 4; i++)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 12),
-                      child: _TabButton(index: i),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          for (int i = 1; i <= 10; i++)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 12),
+                              child: _TabButton(index: i),
+                            ),
+                        ],
+                      ),
                     ),
+                  ),
+                  const SizedBox(width: 16),
+                  const _StrategyInfo(
+                    from: 'Tabs',
+                    to: 'Content',
+                    strategy: 'fixedEntry',
+                  ),
                 ],
               ),
             ),
@@ -191,14 +206,16 @@ class RegionNavigationDemo extends StatelessWidget {
                           Expanded(
                             child: FocusTraversalGroup(
                               child: GridView.builder(
+                                // Ensure entry point card is built even if off-screen
+                                cacheExtent: 500,
                                 padding: const EdgeInsets.all(8),
                                 gridDelegate:
-                                    const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 4,
+                                    const SliverGridDelegateWithMaxCrossAxisExtent(
+                                  maxCrossAxisExtent: 200,
                                   mainAxisSpacing: 16,
                                   crossAxisSpacing: 16,
                                 ),
-                                itemCount: 12,
+                                itemCount: 24,
                                 itemBuilder: (context, index) {
                                   return _ContentCard(
                                     index: index,
@@ -277,6 +294,7 @@ class _TabButton extends StatelessWidget {
       region: 'tabs',
       debugLabel: 'Tab $index',
       isEntryPoint: index == 1,
+      autoScroll: true,
       builder: FocusEffects.scaleWithBorder(
         scale: 1.05,
         borderColor: Colors.purple,

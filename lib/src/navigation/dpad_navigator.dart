@@ -514,6 +514,15 @@ class _DpadNavigatorState extends State<DpadNavigator>
     // RegionAwareFocusTraversalPolicy if a FocusTraversalGroup is set up
     final currentContext = currentFocus.context;
     if (currentContext != null) {
+      // Check if we have a FocusTraversalGroup with our policy
+      final policy = FocusTraversalGroup.maybeOf(currentContext);
+
+      // Try to directly call our policy if available
+      if (policy is RegionAwareFocusTraversalPolicy) {
+        policy.inDirection(currentFocus, direction);
+        return;
+      }
+
       // This will call FocusTraversalPolicy.inDirection which we override
       // in RegionAwareFocusTraversalPolicy to handle region-based navigation
       FocusScope.of(currentContext).focusInDirection(direction);

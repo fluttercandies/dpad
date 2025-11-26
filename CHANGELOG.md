@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] - 2025-11-26
+
+### Fixed
+- **Region Navigation Policy Detection**: Fixed issue where `RegionAwareFocusTraversalPolicy` was not being detected properly
+  - Now directly checks for and uses the policy via `FocusTraversalGroup.maybeOf()`
+  - Ensures region navigation rules are applied correctly when navigating between regions
+
+### Improved
+- **Navigation Logic**: Streamlined the navigation flow in `_navigate()` method
+
 ## [2.0.1] - 2025-11-25
 
 ### Added

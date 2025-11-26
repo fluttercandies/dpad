@@ -32,7 +32,7 @@ class _ProgrammaticNavigationDemoState
   void initState() {
     super.initState();
     // Create focus nodes for the grid
-    for (int i = 0; i < 9; i++) {
+    for (int i = 0; i < 24; i++) {
       _focusNodes.add(FocusNode(debugLabel: 'Grid ${i + 1}'));
     }
   }
@@ -242,12 +242,12 @@ class _ProgrammaticNavigationDemoState
                   Expanded(
                     child: GridView.builder(
                       gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
+                          const SliverGridDelegateWithMaxCrossAxisExtent(
+                        maxCrossAxisExtent: 200,
                         mainAxisSpacing: 16,
                         crossAxisSpacing: 16,
                       ),
-                      itemCount: 9,
+                      itemCount: 24,
                       itemBuilder: (context, index) {
                         return Focus(
                           focusNode: _focusNodes[index],
