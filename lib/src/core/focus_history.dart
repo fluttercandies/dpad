@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 
 /// Focus history entry containing complete information for intelligent focus restoration.
 ///

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 
 /// Signature for focus effect builders.
 ///
@@ -33,6 +33,11 @@ typedef FocusEffectBuilder = Widget Function(
   bool isFocused,
   Widget? child,
 );
+
+const _transparent = Color(0x00000000);
+const _grey = Color(0xFF424242);
+const _black = Color(0xFF000000);
+const _white = Color(0xFFFFFFFF);
 
 /// Pre-built focus effects for common use cases.
 ///
@@ -83,14 +88,14 @@ class FocusEffects {
   ///
   /// **Returns:** A [FocusEffectBuilder] that applies the border effect
   static FocusEffectBuilder border({
-    Color? focusColor,
-    Color unfocusedColor = Colors.transparent,
+    Color focusColor = _white,
+    Color unfocusedColor = _transparent,
     double width = 2.0,
     BorderRadius? borderRadius,
     Duration duration = const Duration(milliseconds: 200),
   }) {
     return (context, isFocused, child) {
-      final color = focusColor ?? Theme.of(context).colorScheme.primary;
+      final color = focusColor;
       return AnimatedContainer(
         duration: duration,
         decoration: BoxDecoration(
@@ -129,14 +134,14 @@ class FocusEffects {
   ///
   /// **Returns:** A [FocusEffectBuilder] that applies the glow effect
   static FocusEffectBuilder glow({
-    Color? glowColor,
+    Color glowColor = _white,
     double blurRadius = 20.0,
     double spreadRadius = 2.0,
     BorderRadius? borderRadius,
     Duration duration = const Duration(milliseconds: 200),
   }) {
     return (context, isFocused, child) {
-      final color = glowColor ?? Theme.of(context).colorScheme.primary;
+      final color = glowColor;
       return AnimatedContainer(
         duration: duration,
         decoration: BoxDecoration(
@@ -144,7 +149,8 @@ class FocusEffects {
           boxShadow: isFocused
               ? [
                   BoxShadow(
-                    color: color.withOpacity(0.6), // ignore: deprecated_member_use
+                    color:
+                        color.withOpacity(0.6), // ignore: deprecated_member_use
                     blurRadius: blurRadius,
                     spreadRadius: spreadRadius,
                   ),
@@ -235,9 +241,7 @@ class FocusEffects {
               : (unfocusedColors != null
                   ? LinearGradient(colors: unfocusedColors)
                   : null),
-          color: !isFocused && unfocusedColors == null
-              ? Colors.grey.shade800
-              : null,
+          color: !isFocused && unfocusedColors == null ? _grey : null,
         ),
         child: child,
       );
@@ -278,9 +282,9 @@ class FocusEffects {
       return AnimatedPhysicalModel(
         duration: duration,
         elevation: isFocused ? focusedElevation : unfocusedElevation,
-        color: Colors.transparent,
+        color: _transparent,
         shape: BoxShape.rectangle,
-        shadowColor: shadowColor ?? Colors.black,
+        shadowColor: shadowColor ?? _black,
         borderRadius: borderRadius ?? BorderRadius.circular(8),
         child: child!,
       );
@@ -312,13 +316,13 @@ class FocusEffects {
   /// **Returns:** A [FocusEffectBuilder] that combines scale and border effects
   static FocusEffectBuilder scaleWithBorder({
     double scale = 1.05,
-    Color? borderColor,
+    Color borderColor = _white,
     double borderWidth = 3.0,
     BorderRadius? borderRadius,
     Duration duration = const Duration(milliseconds: 200),
   }) {
     return (context, isFocused, child) {
-      final color = borderColor ?? Theme.of(context).colorScheme.primary;
+      final color = borderColor;
       return TweenAnimationBuilder<double>(
         duration: duration,
         tween: Tween(begin: 1.0, end: isFocused ? scale : 1.0),
@@ -329,7 +333,7 @@ class FocusEffects {
               duration: duration,
               decoration: BoxDecoration(
                 border: Border.all(
-                  color: isFocused ? color : Colors.transparent,
+                  color: isFocused ? color : _transparent,
                   width: borderWidth,
                 ),
                 borderRadius: borderRadius ?? BorderRadius.circular(8),
@@ -403,10 +407,7 @@ class FocusEffects {
     Duration duration = const Duration(milliseconds: 200),
   }) {
     return (context, isFocused, child) {
-      final tint = isFocused
-          ? (focusedTint ??
-              Theme.of(context).colorScheme.primary.withOpacity(0.3)) // ignore: deprecated_member_use
-          : unfocusedTint;
+      final tint = isFocused ? focusedTint : unfocusedTint;
 
       return AnimatedContainer(
         duration: duration,
