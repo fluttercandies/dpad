@@ -18,6 +18,9 @@
   <a href="https://pub.dev/packages/dpad">
     <img src="https://img.shields.io/pub/v/dpad.svg" alt="Pub Version">
   </a>
+  <a href="https://fluttercandies.github.io/dpad/">
+    <img src="https://img.shields.io/badge/%E2%96%B6-%E5%9C%A8%E7%BA%BF%E6%BC%94%E7%A4%BA-blueviolet.svg" alt="在线演示">
+  </a>
   <a href="https://github.com/fluttercandies/dpad">
     <img src="https://img.shields.io/badge/platform-android%20tv%20%7C%20fire%20tv%20%7C%20apple%20tv-blue.svg" alt="Platform">
   </a>
@@ -29,6 +32,11 @@
 <div align="center">
   <strong>符合 TV 用户直觉的焦点系统 —— 带记忆的导航区域、光束式方向遍历、按压反馈，以及永远不会"失灵"的遥控器。</strong>
 </div>
+
+<p align="center">
+  <a href="https://fluttercandies.github.io/dpad/"><strong>▶ 在线演示</strong></a>
+  —— 浏览器里直接体验完整示例；方向键、回车和 Esc 就是遥控器。
+</p>
 
 ## 为什么选择 Dpad？
 

@@ -18,6 +18,9 @@
   <a href="https://pub.dev/packages/dpad">
     <img src="https://img.shields.io/pub/v/dpad.svg" alt="Pub Version">
   </a>
+  <a href="https://fluttercandies.github.io/dpad/">
+    <img src="https://img.shields.io/badge/%E2%96%B6-live%20demo-blueviolet.svg" alt="Live demo">
+  </a>
   <a href="https://github.com/fluttercandies/dpad">
     <img src="https://img.shields.io/badge/platform-android%20tv%20%7C%20fire%20tv%20%7C%20apple%20tv-blue.svg" alt="Platform">
   </a>
@@ -29,6 +32,11 @@
 <div align="center">
   <strong>Focus that behaves the way TV users expect — regions with memory, beam-based directional traversal, press feedback, and a remote that never goes dead.</strong>
 </div>
+
+<p align="center">
+  <a href="https://fluttercandies.github.io/dpad/"><strong>▶ Try the live demo</strong></a>
+  — the example app in your browser; arrow keys, Enter and Esc are the remote.
+</p>
 
 ## Why Dpad?
 
