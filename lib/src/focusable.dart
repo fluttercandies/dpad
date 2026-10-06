@@ -202,8 +202,7 @@ class _DpadFocusableState extends State<DpadFocusable> {
       if (oldWidget.entry != widget.entry) {
         DpadMarks.entry[_node] = widget.entry ? true : null;
       }
-      if (oldWidget.debugLabel != widget.debugLabel &&
-          widget.debugLabel != null) {
+      if (oldWidget.debugLabel != widget.debugLabel) {
         _node.debugLabel = widget.debugLabel;
       }
     }
@@ -441,7 +440,6 @@ class _DpadFocusableState extends State<DpadFocusable> {
         focusNode: _node,
         autofocus: widget.autofocus,
         canRequestFocus: widget.enabled,
-        debugLabel: widget.debugLabel,
         onKeyEvent: _handleKeyEvent,
         onFocusChange: _handleFocusChange,
         child: content,

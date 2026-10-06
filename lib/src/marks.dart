@@ -45,10 +45,12 @@ abstract final class DpadMarks {
   }
 
   /// Picks the item that should receive focus when nothing better is known:
-  /// the first entry-marked node, otherwise the top-left-most one.
+  /// the first entry-marked node, otherwise the topmost one at the start of
+  /// the reading order — the leftmost in LTR, the rightmost in RTL.
   static FocusNode? initialCandidate(Iterable<FocusNode> candidates) {
-    FocusNode? topLeft;
-    Rect? topLeftRect;
+    FocusNode? best;
+    double? bestTop;
+    double? bestLeading;
     for (final FocusNode node in candidates) {
       if (entry[node] ?? false) {
         return node;
@@ -57,14 +59,20 @@ abstract final class DpadMarks {
       if (rect == null) {
         continue;
       }
-      if (topLeftRect == null ||
-          rect.top < topLeftRect.top - 0.01 ||
-          (rect.top <= topLeftRect.top + 0.01 &&
-              rect.left < topLeftRect.left)) {
-        topLeft = node;
-        topLeftRect = rect;
+      // Negate the RTL leading edge so "smaller wins" means "reading start"
+      // for both text directions.
+      final BuildContext? context = node.context;
+      final bool rtl = context != null &&
+          Directionality.maybeOf(context) == TextDirection.rtl;
+      final double leading = rtl ? -rect.right : rect.left;
+      if (bestTop == null ||
+          rect.top < bestTop - 0.01 ||
+          (rect.top <= bestTop + 0.01 && leading < bestLeading!)) {
+        best = node;
+        bestTop = rect.top;
+        bestLeading = leading;
       }
     }
-    return topLeft;
+    return best;
   }
 }

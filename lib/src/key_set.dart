@@ -91,6 +91,12 @@ class DpadKeySet {
   final List<LogicalKeyboardKey> right;
 
   /// Keys that confirm / press the focused item.
+  ///
+  /// Note that mapping is additive for selection: keyboard-standard
+  /// activation keys (`enter`, `space`) reach [DpadFocusable] through the
+  /// framework's own [ActivateIntent] shortcuts no matter what this set
+  /// contains, just like they activate any Flutter button — remapping
+  /// `select` adds keys (e.g. `F1`), it cannot disarm the keyboard ones.
   final List<LogicalKeyboardKey> select;
 
   /// Keys that request back navigation.

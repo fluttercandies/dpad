@@ -26,12 +26,11 @@ class _SearchSectionState extends State<SearchSection> {
 
   @override
   Widget build(BuildContext context) {
+    final query = _query.toLowerCase();
     final results = [
       for (final row in homeRows)
         for (final movie in row.movies)
-          if (_query.isEmpty ||
-              movie.title.toLowerCase().contains(_query.toLowerCase()))
-            movie,
+          if (query.isEmpty || movie.title.toLowerCase().contains(query)) movie,
     ];
 
     return Padding(

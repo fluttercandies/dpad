@@ -11,7 +11,9 @@ import '../app_state.dart';
 /// * a volume slider consuming left/right via [DpadFocusable.onDirection],
 /// * programmatic focus with [DpadController.requestFocus],
 /// * a live focus-effect gallery (including a [DpadCustomEffect]),
-/// * runtime toggles for the focus inspector and click sounds.
+/// * runtime toggles for the focus inspector, click sounds, an app-wide
+///   right-to-left layout, a remapped key set (WASD) and freezing the
+///   whole d-pad ([Dpad.enabled]).
 class SettingsSection extends StatefulWidget {
   const SettingsSection({super.key});
 
@@ -149,6 +151,36 @@ class _SettingsSectionState extends State<SettingsSection> {
                     title: 'Focus inspector (Dpad.debugOverlay)',
                     value: value,
                     onChanged: (v) => showFocusInspector.value = v,
+                  ),
+                ),
+                ValueListenableBuilder<bool>(
+                  valueListenable: rtlLayout,
+                  builder: (context, value, _) => _ToggleRow(
+                    icon: Icons.format_align_right_rounded,
+                    title: 'Right-to-left layout (RTL demo)',
+                    value: value,
+                    onChanged: (v) => rtlLayout.value = v,
+                  ),
+                ),
+                ValueListenableBuilder<bool>(
+                  valueListenable: wasdKeys,
+                  builder: (context, value, _) => _ToggleRow(
+                    icon: Icons.videogame_asset_rounded,
+                    title: 'WASD movement (custom DpadKeySet)',
+                    value: value,
+                    onChanged: (v) => wasdKeys.value = v,
+                  ),
+                ),
+                // While the d-pad is off, focus freezes wherever it is —
+                // but select keys still fire, so this row can turn it
+                // back on. (The playback-overlay pattern.)
+                ValueListenableBuilder<bool>(
+                  valueListenable: dpadEnabled,
+                  builder: (context, value, _) => _ToggleRow(
+                    icon: Icons.power_settings_new_rounded,
+                    title: 'D-pad enabled (Dpad.enabled)',
+                    value: value,
+                    onChanged: (v) => dpadEnabled.value = v,
                   ),
                 ),
               ],

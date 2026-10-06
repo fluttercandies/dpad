@@ -4,7 +4,8 @@ import 'marks.dart';
 import 'traversal.dart';
 
 /// What happens when d-pad navigation reaches the boundary of a [DpadRegion]
-/// on a given axis.
+/// from a given direction (per-direction overrides on [DpadRegion] pick the
+/// effective value for each key).
 enum DpadEdgeBehavior {
   /// Focus leaves the region and continues to the geometrically best target
   /// outside it. This is the default.
@@ -21,6 +22,27 @@ enum DpadEdgeBehavior {
   /// While wrapping is enabled on an axis, focus never leaves the region on
   /// that axis.
   wrap,
+
+  /// Focus steps to the next *line* of a grid, typewriter-style: right from
+  /// the last cell of a row moves to the first cell of the row below, and
+  /// left from the first cell of a row moves to the last cell of the row
+  /// above (symmetrically for columns with up/down).
+  ///
+  /// The step follows the reading order: in RTL layouts — where rows read
+  /// right-to-left — `left` steps to the line below and `right` back up.
+  ///
+  /// While the current line still has an in-beam candidate ahead, focus
+  /// moves along the line; once it runs out, the line step wins over
+  /// diagonal (out-of-beam) candidates, keeping the movement strictly
+  /// typewriter.
+  ///
+  /// Unlike [wrap], which returns to the start of the *same* row, this is the
+  /// behavior grids and multi-row carousels want. While line wrapping is
+  /// enabled on an axis, focus never leaves the region on that axis; at the
+  /// first/last line of the grid the key press is consumed and
+  /// [DpadRegion.onEdge] is invoked. If the next line is not built yet (lazy
+  /// grids), the engine scrolls and retries, like directional traversal.
+  lineWrap,
 }
 
 /// How a [DpadRegion] chooses which item receives focus when d-pad
@@ -53,8 +75,9 @@ enum DpadEnterBehavior {
 ///   outside widget is geometrically closer.
 /// * **Focus memory** — when focus re-enters the region it returns to the
 ///   last focused item ([DpadEnterBehavior.restore]).
-/// * **Edge control** — each axis independently chooses whether focus
-///   leaves, stops, or wraps at the region boundary ([DpadEdgeBehavior]).
+/// * **Edge control** — each direction independently chooses whether focus
+///   leaves, stops, wraps or line-wraps at the region boundary
+///   ([DpadEdgeBehavior]).
 ///
 /// ```dart
 /// DpadRegion(
@@ -77,6 +100,10 @@ class DpadRegion extends StatefulWidget {
     this.enter = DpadEnterBehavior.restore,
     this.horizontalEdge = DpadEdgeBehavior.leave,
     this.verticalEdge = DpadEdgeBehavior.leave,
+    this.leftEdge,
+    this.rightEdge,
+    this.upEdge,
+    this.downEdge,
     this.memoryKey,
     this.onEdge,
     this.onFocusChange,
@@ -103,6 +130,11 @@ class DpadRegion extends StatefulWidget {
   ///
   /// Restoration is position-aware: if the exact item instance is gone
   /// (rebuilt), the item closest to the remembered position is chosen.
+  ///
+  /// The memory outlives the region itself, so conditionally-rendered
+  /// sections can be switched back and forth without losing their place.
+  /// Entries do not leak: each holds its [FocusNode] weakly and is cleaned
+  /// up automatically once the node is garbage-collected.
   final String? memoryKey;
 
   /// How focus enters this region from outside. Defaults to
@@ -115,8 +147,43 @@ class DpadRegion extends StatefulWidget {
   /// What happens when navigating up or down past the region's last item.
   final DpadEdgeBehavior verticalEdge;
 
-  /// Called when a key press hits a [DpadEdgeBehavior.stop] boundary, or a
-  /// [DpadEdgeBehavior.wrap] boundary with nothing to wrap to.
+  /// Overrides [DpadRegion.horizontalEdge] for the left boundary only.
+  ///
+  /// Direction names are *physical* — they name the remote's keys, exactly
+  /// like [TraversalDirection] — so `leftEdge` always governs the left
+  /// arrow, in LTR and RTL layouts alike. Behaviors that follow the
+  /// reading order ([DpadEdgeBehavior.lineWrap], initial focus placement)
+  /// resolve RTL automatically and need no per-directionality configuration.
+  ///
+  /// Per-direction edges express layouts an axis-wide behavior cannot: a
+  /// carousel that wraps to the right but lets `left` exit towards a
+  /// navigation rail, or a grid row that stops at its end while `left`
+  /// still reaches the rail:
+  ///
+  /// ```dart
+  /// DpadRegion(
+  ///   horizontalEdge: DpadEdgeBehavior.stop,
+  ///   leftEdge: DpadEdgeBehavior.leave, // only the rail stays reachable
+  ///   child: row,
+  /// )
+  /// ```
+  final DpadEdgeBehavior? leftEdge;
+
+  /// Overrides [DpadRegion.horizontalEdge] for the right boundary only.
+  /// See [DpadRegion.leftEdge] for when per-direction edges pay off.
+  final DpadEdgeBehavior? rightEdge;
+
+  /// Overrides [DpadRegion.verticalEdge] for the top boundary only.
+  /// See [DpadRegion.leftEdge] for when per-direction edges pay off.
+  final DpadEdgeBehavior? upEdge;
+
+  /// Overrides [DpadRegion.verticalEdge] for the bottom boundary only.
+  /// See [DpadRegion.leftEdge] for when per-direction edges pay off.
+  final DpadEdgeBehavior? downEdge;
+
+  /// Called when a key press hits a [DpadEdgeBehavior.stop] boundary, a
+  /// [DpadEdgeBehavior.wrap] boundary with nothing to wrap to, or the
+  /// first/last line of a [DpadEdgeBehavior.lineWrap] grid.
   final ValueChanged<TraversalDirection>? onEdge;
 
   /// Called with `true` when focus enters the region and `false` when it
@@ -170,6 +237,10 @@ class DpadRegionState extends State<DpadRegion> {
     debugLabel: 'DpadRegion(${widget.debugLabel ?? hashCode})',
   );
 
+  // A stable instance: a fresh policy in every build would make
+  // FocusTraversalGroup.didUpdateWidget re-set the group's policy each time.
+  late final DpadTraversalPolicy _policy = DpadTraversalPolicy();
+
   FocusNode? _lastFocused;
   Rect? _lastFocusedRect;
 
@@ -190,7 +261,7 @@ class DpadRegionState extends State<DpadRegion> {
   void _loadPersistentMemory() {
     final _RegionMemory? persisted = _persistentMemory[widget.memoryKey];
     if (persisted != null) {
-      _lastFocused = persisted.node;
+      _lastFocused = persisted.node.target;
       _lastFocusedRect = persisted.rect;
     }
   }
@@ -212,14 +283,19 @@ class DpadRegionState extends State<DpadRegion> {
   }
 
   /// The edge behavior governing [direction].
+  ///
+  /// Per-direction overrides ([DpadRegion.leftEdge] and friends) win over
+  /// the axis-wide defaults.
   DpadEdgeBehavior edgeBehaviorFor(TraversalDirection direction) {
     switch (direction) {
       case TraversalDirection.left:
+        return widget.leftEdge ?? widget.horizontalEdge;
       case TraversalDirection.right:
-        return widget.horizontalEdge;
+        return widget.rightEdge ?? widget.horizontalEdge;
       case TraversalDirection.up:
+        return widget.upEdge ?? widget.verticalEdge;
       case TraversalDirection.down:
-        return widget.verticalEdge;
+        return widget.downEdge ?? widget.verticalEdge;
     }
   }
 
@@ -231,7 +307,8 @@ class DpadRegionState extends State<DpadRegion> {
     _lastFocusedRect = DpadMarks.rectOf(node) ?? _lastFocusedRect;
     final String? key = widget.memoryKey;
     if (key != null) {
-      _persistentMemory[key] = _RegionMemory(node, _lastFocusedRect);
+      _persistentMemory[key] =
+          _RegionMemory(WeakReference(node), _lastFocusedRect);
     }
   }
 
@@ -320,7 +397,7 @@ class DpadRegionState extends State<DpadRegion> {
   @override
   Widget build(BuildContext context) {
     return FocusTraversalGroup(
-      policy: DpadTraversalPolicy(),
+      policy: _policy,
       child: Focus(
         focusNode: _marker,
         canRequestFocus: false,
@@ -344,8 +421,8 @@ class _DpadRegionScope extends InheritedWidget {
 }
 
 class _RegionMemory {
-  const _RegionMemory(this.node, this.rect);
+  _RegionMemory(this.node, this.rect);
 
-  final FocusNode node;
+  final WeakReference<FocusNode> node;
   final Rect? rect;
 }

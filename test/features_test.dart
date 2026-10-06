@@ -100,6 +100,36 @@ void main() {
         reason: 'a new page must be immediately drivable by the remote');
   });
 
+  testWidgets(
+      'a pushed route without autofocus starts at the reading start in RTL',
+      (tester) async {
+    final p1 = FocusNode();
+    final p2 = FocusNode();
+
+    await tester.pumpWidget(tvApp(
+      home: Directionality(
+        textDirection: TextDirection.rtl,
+        child: item('host', FocusNode(), autofocus: true),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    Navigator.of(tester.element(find.text('host'))).push(
+      MaterialPageRoute<void>(
+        builder: (context) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: Scaffold(
+            body: Row(children: [item('p1', p1), item('p2', p2)]),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(p1.hasPrimaryFocus, isTrue,
+        reason: 'in RTL, p1 (the first child) is the rightmost item — '
+            'the start of the reading order');
+  });
+
   testWidgets('Dpad.onFocusChange reports every focus move', (tester) async {
     final a = FocusNode(debugLabel: 'a');
     final b = FocusNode(debugLabel: 'b');
@@ -121,11 +151,11 @@ void main() {
       (tester) async {
     await tester.pumpWidget(tvApp(
       debugOverlay: true,
-      home: DpadFocusable(
+      home: const DpadFocusable(
         autofocus: true,
         debugLabel: 'hero-button',
-        effects: const <DpadEffect>[],
-        child: const SizedBox(width: 60, height: 60),
+        effects: <DpadEffect>[],
+        child: SizedBox(width: 60, height: 60),
       ),
     ));
     await tester.pump();
@@ -170,5 +200,95 @@ void main() {
     await tester.pumpWidget(app(overlay: false, enabled: true));
     await tester.pump();
     expect(a.hasPrimaryFocus, isTrue);
+  });
+
+  testWidgets('the theme scrollPadding is honored for plain Focus nodes',
+      (tester) async {
+    final controller = ScrollController();
+    final anchor = FocusNode();
+    final far = FocusNode();
+
+    await tester.pumpWidget(tvApp(
+      theme: const DpadThemeData(scrollPadding: 90),
+      home: SizedBox(
+        width: 400,
+        height: 100,
+        child: SingleChildScrollView(
+          controller: controller,
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              item('anchor', anchor, autofocus: true),
+              const SizedBox(width: 600),
+              Focus(
+                focusNode: far,
+                child: const SizedBox(
+                  width: 60,
+                  height: 60,
+                  child: Text('far'),
+                ),
+              ),
+              const SizedBox(width: 400),
+            ],
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+    expect(far.hasPrimaryFocus, isTrue,
+        reason: 'traversal must reach the plain Focus node');
+
+    // The node spans 660..720 in a 400px viewport; the themed 90px of
+    // padding past its right edge puts the offset at 720 - (400 - 90).
+    expect(controller.offset, closeTo(410, 0.5),
+        reason: 'the themed scrollPadding must translate into viewport '
+            'edge margin for unmanaged nodes');
+  });
+
+  testWidgets(
+      'a region without memory falls back to its entry item on first entry',
+      (tester) async {
+    final s1 = FocusNode();
+    final c1 = FocusNode();
+    final c2 = FocusNode();
+    final c3 = FocusNode();
+
+    await tester.pumpWidget(tvApp(
+      home: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          DpadRegion(
+            debugLabel: 'sidebar',
+            child: Column(children: [item('s1', s1, autofocus: true)]),
+          ),
+          const SizedBox(width: 40),
+          DpadRegion(
+            debugLabel: 'content',
+            child: Column(
+              children: [
+                item('c1', c1),
+                item('c2', c2, entry: true),
+                item('c3', c3),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(s1.hasPrimaryFocus, isTrue,
+        reason: 'autofocus keeps the startup restore out of the content');
+
+    // The content region has never held focus: nothing to restore, so the
+    // very first entry lands on the entry-marked item — not the
+    // geometrically nearest (c1, level with s1).
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    expect(c2.hasPrimaryFocus, isTrue,
+        reason: 'first entry must land on the entry item');
+    expect(c1.hasPrimaryFocus, isFalse);
   });
 }

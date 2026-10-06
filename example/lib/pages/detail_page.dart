@@ -2,6 +2,7 @@ import 'package:dpad/dpad.dart';
 import 'package:flutter/material.dart';
 
 import '../data.dart';
+import '../styles.dart';
 import '../widgets/tv_button.dart';
 
 /// The title page pushed when a poster is selected.
@@ -27,10 +28,7 @@ class DetailPage extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topRight,
             end: Alignment.bottomLeft,
-            colors: [
-              movie.colors.first.withAlpha(115),
-              const Color(0xFF0E1116),
-            ],
+            colors: [movie.colors.first.withAlpha(115), kPageBackground],
           ),
         ),
         child: ListView(
@@ -160,7 +158,7 @@ class _EpisodeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(right: 14),
+      padding: const EdgeInsetsDirectional.only(end: 14),
       child: DpadFocusable(
         onSelect: onSelect,
         child: Container(

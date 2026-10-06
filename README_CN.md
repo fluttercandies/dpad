@@ -121,13 +121,15 @@ Row(
 
 ### 离开区域
 
-每个轴独立决定边界行为：
+每个方向独立决定边界行为 —— 先用 `horizontalEdge` / `verticalEdge` 设定整轴默认，
+再用 `leftEdge` / `rightEdge` / `upEdge` / `downEdge` 覆盖任意单侧：
 
 | `DpadEdgeBehavior` | 效果 |
 |---|---|
 | `leave`（默认） | 焦点继续移动到区域外的最佳目标 |
 | `stop` | 按键被消费，焦点不动，触发 `onEdge`（做撞墙动画、音效） |
 | `wrap` | 焦点环绕到区域另一侧 —— 轮播 |
+| `lineWrap` | 焦点换行到下一条网格线：行尾按右落到下一行行首（按左反之）；到达网格首/末行时触发 `onEdge`；懒加载网格会滚动构建出下一行 |
 
 ```dart
 DpadRegion(
@@ -136,7 +138,23 @@ DpadRegion(
   onFocusChange: (inside) => setState(() => highlighted = inside),
   child: episodeRow,
 )
+
+// 网格：行间换行，横向永远不出区域。
+DpadRegion(
+  horizontalEdge: DpadEdgeBehavior.lineWrap,
+  child: settingsGrid,
+)
+
+// 一行末尾停住，但左侧仍能回到导航栏。
+DpadRegion(
+  horizontalEdge: DpadEdgeBehavior.stop,
+  leftEdge: DpadEdgeBehavior.leave,        // 只有导航栏这一侧可以离开
+  child: row,
+)
 ```
+
+方向名都是**物理方向** —— 即遥控器按键的方向 —— 在 RTL 布局下含义不变。
+与阅读顺序相关的行为（网格换行、初始焦点落点）会自动适配 RTL。
 
 ### 跨重建持久的记忆
 

@@ -5,6 +5,74 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-10-06
+
+Supports Flutter `>= 3.19` / Dart `>= 3.3` (was `>= 3.24` / `>= 3.5`).
+
+### Added
+
+- **Per-direction edge behaviors** — `DpadRegion` gains `leftEdge`,
+  `rightEdge`, `upEdge` and `downEdge`, overriding `horizontalEdge` /
+  `verticalEdge` for a single boundary. Express layouts an axis-wide
+  behavior cannot: a carousel that wraps to the right while `left` still
+  reaches the navigation rail, or a grid row that stops at its end without
+  sealing off the sidebar.
+- **`DpadEdgeBehavior.lineWrap`** — grid line wrap: right past the last
+  cell of a row moves to the first cell of the row below, left past the
+  first cell moves to the last cell of the row above (symmetrically for
+  columns with up/down). Unlike `wrap` (same-row carousel), this is the
+  typewriter behavior grids want: movement stays on the current line while
+  it has cells ahead, then takes the line step — never a diagonal jump to
+  another line. Ragged last rows are handled. At the grid's first/last
+  line the key is consumed and `onEdge` fires; when the next line is not
+  built yet (lazy grids), the engine scrolls and retries, like
+  directional traversal.
+- **RTL support** — line wrap follows the reading order (in RTL layouts,
+  `left` steps to the line below and `right` back up), and initial focus
+  lands on the top-*right* item instead of the top-left one. Text-field
+  caret exit rules and scroll-reveal already behaved correctly under RTL
+  (Flutter's caret movement is logical, and scrollables report their
+  directionality-adjusted axis).
+
+### Changed
+
+- Lowered the SDK floor to Flutter `>= 3.19` / Dart `>= 3.3`. The only
+  code change: `DpadElevationEffect` passes an explicit
+  `BoxShape.rectangle` to `AnimatedPhysicalModel`, which Flutter 3.19
+  requires.
+
+### Fixed
+
+- **`Dpad.enabled` now truly freezes** — previously only Dpad's own
+  shortcuts stood down, but the framework's built-in arrow shortcuts
+  still navigated with the very same TV policy, so focus kept moving.
+  Arrows are now consumed without moving, back/menu and app shortcuts
+  stand down, and programmatic `DpadController.move` calls freeze too
+  (returning `false`); select keys on the focused item keep working (the
+  documented way for a frozen UI to switch navigation back on).
+- **Remapped movement keys no longer hijack typing** — with a custom
+  `DpadKeySet` (WASD), pressing a remapped key while a text field was
+  focused moved focus out and swallowed the character. Only the four
+  physical arrow keys keep the caret-edge escape contract inside text
+  fields; every other movement key falls through and types.
+- **Multiline text fields escape vertically at the text bounds** —
+  previously a multiline field trapped focus forever: up/down never
+  left it, stranding remote-only users. Up from the caret at the text's
+  very start (first line) and down from the very end (last line) now
+  move focus out, while inner-line arrows keep editing the caret.
+- Hardened two crash paths found in review: a focus node detached from
+  the focus tree (element reuse after dispose) no longer falls into the
+  framework's `nearestScope!` assert, and a wrap rewind that outlives
+  its scrollable (page popped mid-hop) stops instead of touching a
+  disposed position.
+- **Lazy `lineWrap` to unbuilt lines** — a wrap move whose destination
+  line is not built yet (long lazy grids, destination far off-screen)
+  now scrolls the region's scrollable toward that line in bounded
+  viewport hops and retries, instead of silently consuming the key at
+  the first built line. The rewind resolves the extreme node
+  geometrically, so wrap works no matter how far the destination sits
+  from the viewport.
+
 ## [3.0.0] - 2026-06-13
 
 A ground-up rewrite. 3.0 replaces the 2.x key interception and rule tables

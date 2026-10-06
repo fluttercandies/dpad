@@ -12,3 +12,18 @@ final ValueNotifier<bool> showFocusInspector = ValueNotifier<bool>(false);
 /// Runtime toggle for the focus "tick" sound played through
 /// [Dpad.onFocusChange].
 final ValueNotifier<bool> clickSounds = ValueNotifier<bool>(true);
+
+/// Runtime toggle for a right-to-left layout — the app mirrors and the
+/// d-pad keeps working: initial focus lands top-right, grid line wrap
+/// follows the reading order, and the rail stays the only way out of a
+/// row. Flip it from the Settings section.
+final ValueNotifier<bool> rtlLayout = ValueNotifier<bool>(false);
+
+/// Runtime toggle for a custom [DpadKeySet]: WASD joins the arrows as
+/// movement keys (a classic remap scenario for keyboard-first users).
+final ValueNotifier<bool> wasdKeys = ValueNotifier<bool>(false);
+
+/// Runtime toggle for [Dpad.enabled] — while off, focus freezes wherever
+/// it is (the pattern for playback overlays). Select keys still work, so
+/// the toggle can flip back.
+final ValueNotifier<bool> dpadEnabled = ValueNotifier<bool>(true);

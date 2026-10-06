@@ -14,6 +14,8 @@ Widget tvApp({
   VoidCallback? onMenu,
   ValueChanged<FocusNode?>? onFocusChange,
   bool debugOverlay = false,
+  bool enabled = true,
+  bool restoreFocus = true,
 }) {
   return MaterialApp(
     builder: Dpad.wrap(
@@ -24,6 +26,8 @@ Widget tvApp({
       onMenu: onMenu,
       onFocusChange: onFocusChange,
       debugOverlay: debugOverlay,
+      enabled: enabled,
+      restoreFocus: restoreFocus,
     ),
     home: Scaffold(body: home),
   );

@@ -54,11 +54,18 @@ class _PosterRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool rtl = Directionality.of(context) == TextDirection.rtl;
     return DpadRegion(
       debugLabel: 'row:${row.title}',
       // Survives section switches: come back to "For you" and every row
       // still remembers its poster.
       memoryKey: 'for-you/${row.title}',
+      // Carousel forward, but the rail side stays reachable — a
+      // per-direction override opens just one side of the axis, mirrored
+      // when the RTL demo is on.
+      horizontalEdge: DpadEdgeBehavior.wrap,
+      leftEdge: rtl ? null : DpadEdgeBehavior.leave,
+      rightEdge: rtl ? DpadEdgeBehavior.leave : null,
       child: SizedBox(
         // 124px cards + 16px of breathing room on each side, so the
         // focused card's scale and glow stay inside the clip bounds.
@@ -69,7 +76,7 @@ class _PosterRow extends StatelessWidget {
           itemCount: row.movies.length,
           itemBuilder: (context, index) => PosterCard(
             movie: row.movies[index],
-            margin: const EdgeInsets.only(right: 16),
+            margin: const EdgeInsetsDirectional.only(end: 16),
             showProgress: showProgress,
             // The first "Continue Watching" poster overrides the theme to
             // show per-item effects.

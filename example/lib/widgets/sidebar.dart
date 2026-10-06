@@ -64,8 +64,7 @@ class _SidebarState extends State<Sidebar> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
-                padding: EdgeInsets.only(
-                    left: _expanded ? 12 : 0, bottom: 28),
+                padding: EdgeInsets.only(left: _expanded ? 12 : 0, bottom: 28),
                 child: Row(
                   // Collapsed: the logo centers in the rail like the icons.
                   mainAxisAlignment: _expanded
@@ -73,8 +72,7 @@ class _SidebarState extends State<Sidebar> {
                       : MainAxisAlignment.center,
                   children: [
                     Icon(Icons.play_circle_fill,
-                        color: Theme.of(context).colorScheme.primary,
-                        size: 32),
+                        color: Theme.of(context).colorScheme.primary, size: 32),
                     if (_expanded) ...[
                       const SizedBox(width: 10),
                       const Flexible(
@@ -105,8 +103,14 @@ class _SidebarState extends State<Sidebar> {
                   onSelect: () {
                     widget.onSelected(i);
                     // Center press on a destination dives into the content —
-                    // programmatic navigation via the controller.
-                    Dpad.of(context).moveRight();
+                    // programmatic navigation via the controller. In RTL the
+                    // rail sits on the right, so the content is to the left.
+                    final controller = Dpad.of(context);
+                    if (Directionality.of(context) == TextDirection.rtl) {
+                      controller.moveLeft();
+                    } else {
+                      controller.moveRight();
+                    }
                   },
                 ),
             ],
@@ -172,9 +176,8 @@ class _SidebarItem extends StatelessWidget {
             child: Row(
               // Collapsed: a centered icon inside a symmetric highlight,
               // not a left-hugging one.
-              mainAxisAlignment: expanded
-                  ? MainAxisAlignment.start
-                  : MainAxisAlignment.center,
+              mainAxisAlignment:
+                  expanded ? MainAxisAlignment.start : MainAxisAlignment.center,
               children: [
                 Icon(destination.icon, size: 22, color: foreground),
                 if (expanded) ...[

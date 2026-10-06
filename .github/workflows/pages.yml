@@ -1,0 +1,60 @@
+# Builds the dpad example app for the web and publishes it to GitHub
+# Pages, so the package's TV navigation is demoable in any desktop
+# browser (keyboard arrows + Enter + Esc drive the d-pad).
+#
+# Serves at https://fluttercandies.github.io/dpad/
+name: Example demo (GitHub Pages)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'example/lib/**'
+      - 'example/web/**'
+      - 'pubspec.yaml'
+      - 'example/pubspec.yaml'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Build the example for the web
+        run: |
+          flutter pub get
+          flutter build web --release --base-href /dpad/
+        working-directory: example
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: example/build/web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

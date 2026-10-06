@@ -121,13 +121,16 @@ Row(
 
 ### Leaving a region
 
-Each axis independently chooses what happens at the boundary:
+Each direction independently chooses what happens at the boundary — set the
+axis-wide `horizontalEdge` / `verticalEdge`, then override any single side
+with `leftEdge` / `rightEdge` / `upEdge` / `downEdge`:
 
 | `DpadEdgeBehavior` | Effect |
 |---|---|
 | `leave` *(default)* | Focus continues to the best target outside |
 | `stop` | Key is consumed, focus stays, `onEdge` fires (bump animations, sounds) |
 | `wrap` | Focus wraps to the opposite side — carousels |
+| `lineWrap` | Focus steps to the next grid line: right past a row ends on the first cell of the row below (and back); at the grid's first/last line `onEdge` fires. Lazy grids scroll to reveal the next line. |
 
 ```dart
 DpadRegion(
@@ -136,7 +139,24 @@ DpadRegion(
   onFocusChange: (inside) => setState(() => highlighted = inside),
   child: episodeRow,
 )
+
+// A grid: line-wrap rows, and never escape sideways.
+DpadRegion(
+  horizontalEdge: DpadEdgeBehavior.lineWrap,
+  child: settingsGrid,
+)
+
+// A row that stops at its end but still lets users reach the nav rail.
+DpadRegion(
+  horizontalEdge: DpadEdgeBehavior.stop,
+  leftEdge: DpadEdgeBehavior.leave,        // only the rail stays reachable
+  child: row,
+)
 ```
+
+Direction names are *physical* — they name the remote's keys — so they mean
+the same thing in RTL layouts. Reading-order-aware behavior (grid line wrap,
+initial focus placement) resolves RTL automatically.
 
 ### Memory that survives rebuilds
 

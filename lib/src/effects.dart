@@ -87,6 +87,15 @@ abstract class DpadEffect {
   }
 }
 
+/// The Material primary when a [Theme] surrounds the item, white otherwise,
+/// so default-colored effects work (and stay neutral) in Material-less apps.
+Color _primaryColor(BuildContext context) {
+  if (context.findAncestorWidgetOfExactType<Theme>() == null) {
+    return const Color(0xFFFFFFFF);
+  }
+  return Theme.of(context).colorScheme.primary;
+}
+
 /// Scales the item up while focused and slightly back down while pressed —
 /// the classic TV "lift and press" feedback.
 class DpadScaleEffect extends DpadEffect {
@@ -156,7 +165,7 @@ class DpadBorderEffect extends DpadEffect {
 
   @override
   Widget build(BuildContext context, DpadFocusState state, Widget child) {
-    final Color resolved = color ?? Theme.of(context).colorScheme.primary;
+    final Color resolved = color ?? _primaryColor(context);
     return AnimatedContainer(
       duration: duration,
       foregroundDecoration: BoxDecoration(
@@ -203,20 +212,24 @@ class DpadGlowEffect extends DpadEffect {
 
   @override
   Widget build(BuildContext context, DpadFocusState state, Widget child) {
-    final Color resolved = color ?? Theme.of(context).colorScheme.primary;
+    final Color resolved = color ?? _primaryColor(context);
     return AnimatedContainer(
       duration: duration,
       decoration: BoxDecoration(
         borderRadius: borderRadius,
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: resolved.withAlpha(
-              state.focused ? (opacity.clamp(0.0, 1.0) * 255).round() : 0,
-            ),
-            blurRadius: blurRadius,
-            spreadRadius: spreadRadius,
-          ),
-        ],
+        // No shadow at all while idle (BoxShadow.lerpList interpolates
+        // between lists of different lengths, so the fade stays smooth).
+        boxShadow: state.focused
+            ? <BoxShadow>[
+                BoxShadow(
+                  color: resolved.withAlpha(
+                    (opacity.clamp(0.0, 1.0) * 255).round(),
+                  ),
+                  blurRadius: blurRadius,
+                  spreadRadius: spreadRadius,
+                ),
+              ]
+            : const <BoxShadow>[],
       ),
       child: child,
     );
@@ -254,6 +267,7 @@ class DpadElevationEffect extends DpadEffect {
     return AnimatedPhysicalModel(
       duration: duration,
       curve: Curves.easeOutCubic,
+      shape: BoxShape.rectangle,
       elevation: state.focused ? elevation : idleElevation,
       color: const Color(0x00000000),
       shadowColor: shadowColor,
@@ -316,7 +330,7 @@ class DpadTintEffect extends DpadEffect {
 
   @override
   Widget build(BuildContext context, DpadFocusState state, Widget child) {
-    final Color resolved = color ?? Theme.of(context).colorScheme.primary;
+    final Color resolved = color ?? _primaryColor(context);
     return AnimatedContainer(
       duration: duration,
       foregroundDecoration: BoxDecoration(

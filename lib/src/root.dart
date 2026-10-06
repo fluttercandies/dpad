@@ -61,8 +61,13 @@ class Dpad extends StatefulWidget {
   /// `MaterialApp.builder`) or the whole `MaterialApp`.
   final Widget child;
 
-  /// When `false`, [Dpad] only provides its scope ([Dpad.of] keeps working)
-  /// and leaves key handling untouched.
+  /// Freezes remote navigation — the playback-overlay pattern: while
+  /// `false`, arrow keys are consumed without moving focus (so nothing
+  /// behind [Dpad] can steal them either), back/menu keys and [shortcuts]
+  /// stand down, and [DpadController.move] calls do nothing. Select keys
+  /// keep working on the focused [DpadFocusable], which is what lets a
+  /// frozen UI (an on-screen toggle, a "press OK to resume" hint) turn
+  /// navigation back on.
   final bool enabled;
 
   /// The remote-key mapping. See [DpadKeySet].
@@ -73,6 +78,9 @@ class Dpad extends StatefulWidget {
 
   /// Called when a back key ([DpadKeySet.back]) is pressed.
   ///
+  /// Suspended automatically while a text field is focused (the IME owns
+  /// the keys) and while [enabled] is `false`.
+  ///
   /// Return `true` to consume the press. Return `false` to let the
   /// framework continue (dismissing dialogs, popping routes on platforms
   /// that deliver back as a key event). When null, back keys are not
@@ -80,6 +88,9 @@ class Dpad extends StatefulWidget {
   final bool Function()? onBack;
 
   /// Called when a menu key ([DpadKeySet.menu]) is pressed.
+  ///
+  /// Suspended automatically while a text field is focused (the IME owns
+  /// the keys) and while [enabled] is `false`.
   final VoidCallback? onMenu;
 
   /// Called on every focus change with the newly focused node (or `null`
@@ -327,16 +338,38 @@ class _DpadState extends State<Dpad> with WidgetsBindingObserver {
 
   bool get _keysActive => widget.enabled && _focusedEditable == null;
 
+  static final Set<LogicalKeyboardKey> _physicalArrowKeys =
+      <LogicalKeyboardKey>{
+    LogicalKeyboardKey.arrowUp,
+    LogicalKeyboardKey.arrowDown,
+    LogicalKeyboardKey.arrowLeft,
+    LogicalKeyboardKey.arrowRight,
+  };
+
   /// TV-correct arrow handling inside text fields: arrows edit the caret
   /// in the middle of text, but *leave* the field when there is nowhere
   /// left to go — otherwise a remote-only user is trapped in the field.
-  bool _directionAllowed(TraversalDirection direction) {
+  ///
+  /// Remapped movement keys (WASD) never claim this contract: they fall
+  /// through while an editable is focused so the user can still type
+  /// them.
+  bool _directionAllowed(
+    TraversalDirection direction, {
+    required bool isArrowKey,
+  }) {
+    // While frozen the map stays installed and the action stays enabled —
+    // the key is then consumed by [_move] without moving — because the
+    // framework's own arrow shortcuts sit above and would otherwise keep
+    // navigating with this same policy.
     if (!widget.enabled) {
-      return false;
+      return true;
     }
     final EditableTextState? editable = _focusedEditable;
     if (editable == null) {
       return true;
+    }
+    if (!isArrowKey) {
+      return false;
     }
     final TextEditingValue value = editable.textEditingValue;
     if (value.composing.isValid) {
@@ -347,7 +380,18 @@ class _DpadState extends State<Dpad> with WidgetsBindingObserver {
       case TraversalDirection.up:
       case TraversalDirection.down:
         // Single-line fields have no vertical caret movement: navigate.
-        return editable.widget.maxLines == 1;
+        if (editable.widget.maxLines == 1) {
+          return true;
+        }
+        // Multiline fields keep vertical caret movement between lines;
+        // escape only from the text's very start/end — the outer edge of
+        // the first/last line — so a remote-only user is never trapped,
+        // while inner-line arrows keep editing the caret.
+        return selection.isValid &&
+            selection.isCollapsed &&
+            (direction == TraversalDirection.up
+                ? selection.baseOffset <= 0
+                : selection.baseOffset >= value.text.length);
       case TraversalDirection.left:
         return selection.isValid &&
             selection.isCollapsed &&
@@ -360,6 +404,12 @@ class _DpadState extends State<Dpad> with WidgetsBindingObserver {
   }
 
   bool _move(TraversalDirection direction) {
+    // Frozen: the action stays enabled so the key press is still consumed
+    // (the framework's default arrow shortcuts must not move focus), but a
+    // programmatic caller learns the truth — nothing moved.
+    if (!widget.enabled) {
+      return false;
+    }
     final FocusNode? primary = FocusManager.instance.primaryFocus;
     if (primary == null || primary.context == null) {
       _restoreFocus(resumed: true);
@@ -372,7 +422,10 @@ class _DpadState extends State<Dpad> with WidgetsBindingObserver {
     final Map<ShortcutActivator, Intent> map = <ShortcutActivator, Intent>{};
     void mapDirection(List<LogicalKeyboardKey> keys, TraversalDirection d) {
       for (final LogicalKeyboardKey key in keys) {
-        map[SingleActivator(key)] = _DpadDirectionalIntent(d);
+        map[SingleActivator(key)] = _DpadDirectionalIntent(
+          d,
+          isArrowKey: _physicalArrowKeys.contains(key),
+        );
       }
     }
 
@@ -420,9 +473,13 @@ class _DpadState extends State<Dpad> with WidgetsBindingObserver {
               },
               child: Shortcuts(
                 debugLabel: 'Dpad',
-                shortcuts: widget.enabled
-                    ? _buildShortcuts()
-                    : const <ShortcutActivator, Intent>{},
+                // Always installed. While frozen, the directional actions
+                // stay enabled and swallow the arrows (see [_move]) —
+                // clearing the map would hand the keys to the framework's
+                // own arrow shortcuts, which navigate with this very
+                // policy; back/menu/shortcut intents simply stand down via
+                // their enabled checks instead.
+                shortcuts: _buildShortcuts(),
                 child: FocusTraversalGroup(
                   policy: _policy,
                   child: widget.child,
@@ -545,9 +602,15 @@ class _DpadScope extends InheritedWidget {
 // ---------------------------------------------------------------------------
 
 class _DpadDirectionalIntent extends Intent {
-  const _DpadDirectionalIntent(this.direction);
+  const _DpadDirectionalIntent(this.direction, {required this.isArrowKey});
 
   final TraversalDirection direction;
+
+  /// Whether the pressed key is one of the four physical arrow keys, as
+  /// opposed to a remapped movement key (WASD and friends). Only physical
+  /// arrows keep the caret-edge escape contract inside text fields — a
+  /// remapped key must fall through so it can be typed.
+  final bool isArrowKey;
 }
 
 class _DpadBackIntent extends Intent {
@@ -570,8 +633,10 @@ class _DpadDirectionalAction extends Action<_DpadDirectionalIntent> {
   final _DpadState state;
 
   @override
-  bool isEnabled(_DpadDirectionalIntent intent) =>
-      state._directionAllowed(intent.direction);
+  bool isEnabled(_DpadDirectionalIntent intent) => state._directionAllowed(
+        intent.direction,
+        isArrowKey: intent.isArrowKey,
+      );
 
   @override
   Object? invoke(_DpadDirectionalIntent intent) {
@@ -659,7 +724,8 @@ class DpadController {
   }
 
   /// Moves focus one step in [direction], exactly like a remote key press.
-  /// Returns whether focus moved (or the press was meaningfully consumed).
+  /// Returns whether focus moved (or the press was meaningfully consumed);
+  /// `false` while [Dpad.enabled] is `false`.
   bool move(TraversalDirection direction) => _state._move(direction);
 
   /// Moves focus up. Equivalent to `move(TraversalDirection.up)`.

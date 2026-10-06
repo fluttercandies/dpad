@@ -3,15 +3,15 @@ description: >-
   Production-grade D-pad navigation for Flutter TV apps. Focus regions with
   memory, TV-correct directional traversal, focus effects and remote-key
   handling.
-version: 3.0.0
+version: 3.1.0
 homepage: https://github.com/fluttercandies/dpad
 repository: https://github.com/fluttercandies/dpad
 issue_tracker: https://github.com/fluttercandies/dpad/issues
 documentation: https://github.com/fluttercandies/dpad
 
 environment:
-  sdk: '>=3.5.0 <4.0.0'
-  flutter: '>=3.24.0'
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.19.0'
 
 dependencies:
   flutter:
@@ -20,7 +20,7 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
+  flutter_lints: '>=4.0.0 <7.0.0'
 
 topics:
   - android-tv
