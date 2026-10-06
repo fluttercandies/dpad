@@ -888,6 +888,9 @@ void main() {
         () => focusInsideEditable,
         maxPresses: 3,
       );
+      expect(focusInsideEditable, isTrue,
+          reason: 'never reached the search field');
+
       await cockpit.type('the', into: 'Search titles…');
       await cockpit.waitForUi();
       await cockpit.expectVisible('The Long Orbit'); // first match is mounted
@@ -899,7 +902,12 @@ void main() {
       // ...then a section shortcut disposes the entire grid under it.
       // The remote must never go dead: focus lands on a real survivor.
       await tapKey(cockpit, 'KeyL');
-      await cockpit.waitForUi();
+      // Focus restoration lands a frame or two after the dispose; drive a
+      // few short frames for it instead of sampling once, so a busy frame
+      // can't flake the run (bounded: ~2s of frames, no idle waits).
+      for (int i = 0; i < 20 && focusedDebugLabel == null; i++) {
+        await cockpit.flutter.pump(const Duration(milliseconds: 100));
+      }
       final String? label = focusedDebugLabel;
       expect(label, isNotNull, reason: 'focus was lost with its host');
       expect(
