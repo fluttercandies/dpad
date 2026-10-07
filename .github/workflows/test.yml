@@ -1,0 +1,34 @@
+# Lints and tests the package and its example app on every push and
+# pull request, so regressions are caught before they reach pub.dev.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Analyze and test the package
+        run: |
+          flutter analyze
+          flutter test
+
+      - name: Analyze and test the example
+        working-directory: example
+        run: |
+          flutter analyze
+          flutter test

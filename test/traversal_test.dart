@@ -159,6 +159,63 @@ void main() {
     });
 
     testWidgets(
+        'a collapsed (zero-size) scrollable reports the edge instead of '
+        'retrying forever', (tester) async {
+      final controller = ScrollController();
+      final first = FocusNode();
+      final edges = <TraversalDirection>[];
+
+      // The horizontal row lives inside a vertical scrollable whose
+      // viewport is collapsed to zero height. Pressing down finds no
+      // candidate and a scrollable that "can" still scroll (extent is
+      // real), but its step is 0 * 0.8 = 0 — the retry chain must bail
+      // out instead of re-running the search every frame forever.
+      await tester.pumpWidget(tvApp(
+        home: DpadRegion(
+          verticalEdge: DpadEdgeBehavior.stop,
+          onEdge: edges.add,
+          child: SizedBox(
+            height: 0,
+            child: SingleChildScrollView(
+              controller: controller,
+              child: Column(children: [
+                SizedBox(
+                  height: 100,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: 10,
+                    itemBuilder: (context, index) => DpadFocusable(
+                      focusNode: index == 0 ? first : null,
+                      autofocus: index == 0,
+                      effects: const <DpadEffect>[],
+                      child: SizedBox(width: 100, child: Text('item$index')),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 400),
+              ]),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(first.hasPrimaryFocus, isTrue);
+      final double settled = controller.offset;
+      expect(settled, lessThan(controller.position.maxScrollExtent - 1),
+          reason: 'the setup must leave scroll room toward down');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(edges, [TraversalDirection.down],
+          reason: 'no scroll progress is possible, so the key must fall '
+              'through to the region edge');
+      expect(controller.offset, settled);
+      expect(first.hasPrimaryFocus, isTrue);
+    });
+
+    testWidgets(
         'wrap rewinds a lazy list to the true first item, '
         'not the furthest cached one', (tester) async {
       final controller = ScrollController();

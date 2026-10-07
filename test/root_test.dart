@@ -1096,6 +1096,47 @@ void main() {
       expect(a.hasPrimaryFocus, isTrue);
     });
 
+    testWidgets(
+        'a resume arriving while a plain restore is queued still restores',
+        (tester) async {
+      final a = FocusNode();
+      final b = FocusNode();
+
+      await tester.pumpWidget(tvApp(
+        home: Row(children: [item('a', a, autofocus: true), item('b', b)]),
+      ));
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      expect(b.hasPrimaryFocus, isTrue);
+
+      // A deliberate unfocus queues a plain (non-resume) restore. The
+      // focus notification is deferred to a microtask by FocusManager, so
+      // yield once — the restore is now queued but, with no frame pumped,
+      // still unexecuted.
+      Dpad.of(tester.element(find.text('a'))).clearFocus();
+      await null;
+      await null;
+
+      // On a device, frames are suspended while backgrounded, so a
+      // restore queued just before the pause survives it, and the resume
+      // event arrives before the post-frame callback runs. The pending
+      // restore must keep the resume flag instead of running as a plain
+      // one (which would treat the unfocus as deliberate and skip).
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+
+      await tester.pumpAndSettle();
+      expect(b.hasPrimaryFocus, isTrue,
+          reason: 'the queued restore must not downgrade the resume');
+
+      // Keys keep working after the interleaved round-trip.
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.pump();
+      expect(a.hasPrimaryFocus, isTrue);
+    });
+
     // Deliberate semantics: Dpad does not gate key handling on lifecycle
     // states — the OS delivers no key events while the app is truly
     // backgrounded anyway, and on desktops a brief `inactive` (window

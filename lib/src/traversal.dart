@@ -725,6 +725,13 @@ class DpadTraversalPolicy extends ReadingOrderTraversalPolicy {
       position.minScrollExtent,
       position.maxScrollExtent,
     );
+    // A collapsed (zero along-axis) viewport cannot make progress: the
+    // animation completes instantly and the retry would re-enter this
+    // method every frame without ever moving — same guard as
+    // [DpadScroll._revealIn].
+    if ((offset - position.pixels).abs() < 0.5) {
+      return false;
+    }
 
     position
         .animateTo(

@@ -205,7 +205,10 @@ class _DpadState extends State<Dpad> with WidgetsBindingObserver {
 
   FocusNode? _lastFocus;
   Rect? _lastRect;
-  bool _restoreScheduled = false;
+
+  /// `null` when no restore is pending; otherwise the queued restore's
+  /// `resumed` flag, OR-accumulated across schedules.
+  bool? _pendingRestoreResumed;
 
   @override
   void initState() {
@@ -264,17 +267,23 @@ class _DpadState extends State<Dpad> with WidgetsBindingObserver {
   }
 
   void _scheduleRestore({bool resumed = false}) {
-    if (_restoreScheduled) {
+    // Frames can be suspended across an app pause, so a resume event may
+    // arrive while a plain restore is still queued: OR-accumulate the flag
+    // instead of dropping it, or the resumed restore would run as a plain
+    // one and skip restoration as a "deliberate unfocus".
+    final bool? pending = _pendingRestoreResumed;
+    _pendingRestoreResumed = (pending ?? false) || resumed;
+    if (pending != null) {
       return;
     }
-    _restoreScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // The microtask hop lets pending `autofocus` and explicit focus
       // requests settle first, so they always win over the fallback.
       scheduleMicrotask(() {
-        _restoreScheduled = false;
+        final bool restoreResumed = _pendingRestoreResumed ?? false;
+        _pendingRestoreResumed = null;
         if (mounted && widget.enabled && widget.restoreFocus) {
-          _restoreFocus(resumed: resumed);
+          _restoreFocus(resumed: restoreResumed);
         }
       });
     });

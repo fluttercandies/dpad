@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.1] - 2026-10-07
+
+### Fixed
+
+- **Collapsed scrollables no longer swallow keys in a retry loop** —
+  navigating away from a region whose matching-axis scrollable had a
+  zero along-axis viewport (an animated collapse keeping the subtree
+  mounted, or any layout glitch) consumed the key forever: the scroll
+  step was `viewportDimension * 0.8 == 0`, the scroll animation
+  completed instantly, and the retry re-entered the search every frame
+  without ever moving. The move now bails out when a hop cannot make
+  progress (the same `< 0.5px` guard `DpadScroll` applies to reveal
+  scrolls), so the key falls through to the configured edge behavior.
+- **App resume can no longer be downgraded by a queued restore** — a
+  focus-to-null event right before backgrounding (frames suspended, so
+  the restore was still queued) dropped the resume flag: the pending
+  restore then ran as a plain one, treated the unfocus as deliberate,
+  and skipped restoration, leaving the app without focus after resume.
+  The queued restore now keeps the strongest flag.
+
 ## [3.1.0] - 2026-10-07
 
 Supports Flutter `>= 3.19` / Dart `>= 3.3` (was `>= 3.24` / `>= 3.5`).
