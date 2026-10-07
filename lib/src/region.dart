@@ -133,8 +133,11 @@ class DpadRegion extends StatefulWidget {
   ///
   /// The memory outlives the region itself, so conditionally-rendered
   /// sections can be switched back and forth without losing their place.
-  /// Entries do not leak: each holds its [FocusNode] weakly and is cleaned
-  /// up automatically once the node is garbage-collected.
+  /// Each entry holds its [FocusNode] weakly, so a collected node is not
+  /// kept alive; the entry itself (with its remembered position, which
+  /// position-aware restoration still uses) stays under its key until it
+  /// is overwritten or [DpadRegionState.clearPersistentMemory] is called —
+  /// keep keys stable and bounded, as with any cache key.
   final String? memoryKey;
 
   /// How focus enters this region from outside. Defaults to

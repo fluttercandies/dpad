@@ -194,6 +194,38 @@ void main() {
       expect(hits, 0, reason: 'app shortcuts stand down while frozen');
     });
 
+    testWidgets('while frozen, arrows still edit a focused text field',
+        (tester) async {
+      final field = FocusNode();
+      final controller = TextEditingController(text: 'ab');
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(tvApp(
+        enabled: false,
+        home: TextField(focusNode: field, controller: controller),
+      ));
+      field.requestFocus();
+      await tester.pump();
+      controller.selection = const TextSelection.collapsed(offset: 1);
+      await tester.pump();
+
+      // Frozen navigation falls back to plain caret editing inside the
+      // field — the keys are still consumed there, so nothing leaks out.
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      expect(controller.selection.baseOffset, 2,
+          reason: 'the caret must still move while frozen');
+      expect(field.hasFocus, isTrue);
+
+      // At the caret end the editing layer keeps consuming the key: focus
+      // must not escape the field while frozen.
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      expect(field.hasFocus, isTrue,
+          reason: 'frozen navigation must never move focus, not even out '
+              'of a field');
+    });
+
     testWidgets('controller moves report failure while frozen', (tester) async {
       final a = FocusNode();
       final b = FocusNode();

@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.1.0] - 2026-10-06
+## [3.1.0] - 2026-10-07
 
 Supports Flutter `>= 3.19` / Dart `>= 3.3` (was `>= 3.24` / `>= 3.5`).
 
@@ -46,10 +46,18 @@ Supports Flutter `>= 3.19` / Dart `>= 3.3` (was `>= 3.24` / `>= 3.5`).
 - **`Dpad.enabled` now truly freezes** — previously only Dpad's own
   shortcuts stood down, but the framework's built-in arrow shortcuts
   still navigated with the very same TV policy, so focus kept moving.
-  Arrows are now consumed without moving, back/menu and app shortcuts
-  stand down, and programmatic `DpadController.move` calls freeze too
-  (returning `false`); select keys on the focused item keep working (the
-  documented way for a frozen UI to switch navigation back on).
+  Arrows are now consumed without moving (while a text field is focused
+  they fall through to plain caret editing, which still never moves
+  focus), back/menu and app shortcuts stand down, in-flight wrap
+  rewinds stop scrolling and grabbing focus, and programmatic
+  `DpadController.move` calls freeze too (returning `false`); select
+  keys on the focused item keep working (the documented way for a
+  frozen UI to switch navigation back on).
+- **Programmatic focus outranks wrap rewinds** — `Dpad.requestFocus`,
+  `Dpad.clearFocus` and Dpad's own focus recovery (list refresh, route
+  pop, app resume) now invalidate any wrap-rewind chain still in
+  flight, so a chain can no longer drag focus away from where the app
+  deliberately put it.
 - **Remapped movement keys no longer hijack typing** — with a custom
   `DpadKeySet` (WASD), pressing a remapped key while a text field was
   focused moved focus out and swallowed the character. Only the four

@@ -203,6 +203,118 @@ void main() {
       expect(controller.offset, lessThan(100));
     });
 
+    testWidgets('freezing navigation stops a wrap rewind in flight',
+        (tester) async {
+      final controller = ScrollController();
+      final first = FocusNode();
+
+      Widget app(bool enabled) => tvApp(
+            enabled: enabled,
+            home: SizedBox(
+              height: 100,
+              child: DpadRegion(
+                horizontalEdge: DpadEdgeBehavior.wrap,
+                child: ListView.builder(
+                  controller: controller,
+                  scrollDirection: Axis.horizontal,
+                  itemCount: 40,
+                  itemBuilder: (context, index) => DpadFocusable(
+                    focusNode: index == 0 ? first : null,
+                    autofocus: index == 0,
+                    effects: const <DpadEffect>[],
+                    child: SizedBox(width: 100, child: Text('item$index')),
+                  ),
+                ),
+              ),
+            ),
+          );
+
+      await tester.pumpWidget(app(true));
+      await tester.pump();
+      for (int i = 0; i < 39; i++) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+        await tester.pumpAndSettle();
+      }
+      expect(controller.offset, greaterThan(2500));
+
+      // Start the wrap rewind, let one hop land, then freeze mid-chain.
+      // Pumping in frame-sized steps (not one 250ms gulp) so the first
+      // hop's focus grab has actually run before the capture below —
+      // otherwise the capture holds the pre-rewind focus, which the one
+      // hop a freeze lets finish is allowed to scroll away and evict.
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      for (int i = 0; i < 4; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      final FocusNode focusAtFreeze = FocusManager.instance.primaryFocus!;
+
+      await tester.pumpWidget(app(false));
+      await tester.pumpAndSettle();
+
+      // The hop that was already animating may finish, but no further hop
+      // runs, no further focus grab happens, and the rewind never lands on
+      // the true first item while frozen.
+      expect(
+        FocusManager.instance.primaryFocus,
+        same(focusAtFreeze),
+        reason: 'a frozen chain must not keep grabbing focus',
+      );
+      expect(first.hasPrimaryFocus, isFalse,
+          reason: 'a frozen chain must not complete its rewind');
+      expect(controller.offset, greaterThan(1000),
+          reason: 'a frozen chain must not finish scrolling back');
+    });
+
+    testWidgets('a programmatic requestFocus outranks an in-flight rewind',
+        (tester) async {
+      final controller = ScrollController();
+      final first = FocusNode();
+      // An item that stays built at the far end of the lazy line.
+      final probe = FocusNode();
+
+      await tester.pumpWidget(tvApp(
+        home: SizedBox(
+          height: 100,
+          child: DpadRegion(
+            horizontalEdge: DpadEdgeBehavior.wrap,
+            child: ListView.builder(
+              controller: controller,
+              scrollDirection: Axis.horizontal,
+              itemCount: 40,
+              itemBuilder: (context, index) => DpadFocusable(
+                focusNode: index == 0
+                    ? first
+                    : index == 35
+                        ? probe
+                        : null,
+                autofocus: index == 0,
+                effects: const <DpadEffect>[],
+                child: SizedBox(width: 100, child: Text('item$index')),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+      for (int i = 0; i < 39; i++) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+        await tester.pumpAndSettle();
+      }
+
+      // Rewind in flight; the app programmatically re-anchors mid-chain.
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump(const Duration(milliseconds: 100));
+      final dpad = Dpad.of(tester.element(find.byType(DpadRegion)));
+      expect(dpad.requestFocus(probe), isTrue);
+      await tester.pumpAndSettle();
+
+      expect(probe.hasPrimaryFocus, isTrue,
+          reason: 'the chain must not drag focus away from a '
+              'programmatic focus');
+      expect(controller.offset, greaterThan(1000),
+          reason: 'the superseded chain must not finish scrolling back');
+    });
+
     testWidgets('RTL wrap rewinds to the reading start', (tester) async {
       final controller = ScrollController();
       final first = FocusNode();

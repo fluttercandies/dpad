@@ -50,6 +50,16 @@ class DpadTraversalPolicy extends ReadingOrderTraversalPolicy {
   // cross-region `interrupted()` check cannot see) still wins over the chain.
   int _rewindGeneration = 0;
 
+  // App-wide epoch for rewind chains: bumped when navigation freezes or
+  // unfreezes, and on dpad-owned programmatic focus moves. A chain captures
+  // it at launch and yields once it moves — a freeze must stop chains from
+  // scrolling and grabbing focus, and a programmatic requestFocus must not
+  // be dragged back by a chain still in flight.
+  static int _rewindEpoch = 0;
+
+  /// Invalidates every in-flight rewind chain, app-wide.
+  static void invalidateRewinds() => _rewindEpoch++;
+
   @override
   bool inDirection(FocusNode currentNode, TraversalDirection direction) {
     // No real focus yet: land on a sensible initial item.
@@ -448,6 +458,7 @@ class DpadTraversalPolicy extends ReadingOrderTraversalPolicy {
     // Launching supersedes any rewind chain still in flight (rapid wrap
     // presses): the newest chain is the only one allowed to land.
     final int generation = ++_rewindGeneration;
+    final int epoch = _rewindEpoch;
 
     // A key press during the rewind that moved focus into another region
     // (rail, dialog) must win; focus loss from cache eviction must not.
@@ -460,8 +471,10 @@ class DpadTraversalPolicy extends ReadingOrderTraversalPolicy {
     }
 
     // Superseded by a newer navigation decision (a synchronous move or a
-    // newer rewind): the chain yields instead of stealing focus back.
-    bool superseded() => generation != _rewindGeneration;
+    // newer rewind) or invalidated app-wide (a freeze, a programmatic
+    // focus): the chain yields instead of stealing focus back.
+    bool superseded() =>
+        generation != _rewindGeneration || epoch != _rewindEpoch;
 
     void land() {
       if (interrupted() || superseded()) {

@@ -64,7 +64,9 @@ class Dpad extends StatefulWidget {
   /// Freezes remote navigation — the playback-overlay pattern: while
   /// `false`, arrow keys are consumed without moving focus (so nothing
   /// behind [Dpad] can steal them either), back/menu keys and [shortcuts]
-  /// stand down, and [DpadController.move] calls do nothing. Select keys
+  /// stand down, and [DpadController.move] calls do nothing. While a text
+  /// field holds focus the arrows fall through to normal caret editing —
+  /// which consumes them too, so focus still never moves. Select keys
   /// keep working on the focused [DpadFocusable], which is what lets a
   /// frozen UI (an on-screen toggle, a "press OK to resume" hint) turn
   /// navigation back on.
@@ -216,6 +218,17 @@ class _DpadState extends State<Dpad> with WidgetsBindingObserver {
   }
 
   @override
+  void didUpdateWidget(Dpad oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A freeze must stop any wrap rewind still in flight — its per-hop
+    // focus grabs would keep moving focus while frozen; re-enabling must
+    // not resurrect an old chain either. A fresh press starts a new one.
+    if (oldWidget.enabled != widget.enabled) {
+      DpadTraversalPolicy.invalidateRewinds();
+    }
+  }
+
+  @override
   void dispose() {
     FocusManager.instance.removeListener(_handleGlobalFocusChange);
     WidgetsBinding.instance.removeObserver(this);
@@ -281,6 +294,7 @@ class _DpadState extends State<Dpad> with WidgetsBindingObserver {
     if (lastUsable) {
       if (resumed) {
         // Coming back from background: return to where the user was.
+        DpadTraversalPolicy.invalidateRewinds();
         last!.requestFocus();
         return;
       }
@@ -319,6 +333,8 @@ class _DpadState extends State<Dpad> with WidgetsBindingObserver {
       }
     }
     target ??= DpadMarks.initialCandidate(candidates) ?? candidates.first;
+    // Recovery (list refresh, route pop) outranks in-flight rewind chains.
+    DpadTraversalPolicy.invalidateRewinds();
     DpadRegion.ofNode(target)?.noteFocus(target);
     target.requestFocus();
   }
@@ -360,9 +376,12 @@ class _DpadState extends State<Dpad> with WidgetsBindingObserver {
     // While frozen the map stays installed and the action stays enabled —
     // the key is then consumed by [_move] without moving — because the
     // framework's own arrow shortcuts sit above and would otherwise keep
-    // navigating with this same policy.
+    // navigating with this same policy. One exception: while an editable
+    // holds focus the action must stand down so the keys fall through to
+    // caret editing — which also consumes them, so focus still never
+    // moves.
     if (!widget.enabled) {
-      return true;
+      return _focusedEditable == null;
     }
     final EditableTextState? editable = _focusedEditable;
     if (editable == null) {
@@ -768,6 +787,9 @@ class DpadController {
     if (!DpadMarks.isUsable(node)) {
       return false;
     }
+    // A programmatic focus decision outranks any wrap rewind still in
+    // flight — the chain must not drag focus back afterwards.
+    DpadTraversalPolicy.invalidateRewinds();
     DpadRegion.ofNode(node)?.noteFocus(node);
     node.requestFocus();
     return true;
@@ -775,6 +797,9 @@ class DpadController {
 
   /// Removes focus from the currently focused item.
   void clearFocus() {
+    // Deliberate unfocus: an in-flight rewind chain must not "helpfully"
+    // grab focus back.
+    DpadTraversalPolicy.invalidateRewinds();
     FocusManager.instance.primaryFocus?.unfocus();
   }
 
