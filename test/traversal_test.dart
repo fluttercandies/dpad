@@ -216,6 +216,207 @@ void main() {
     });
 
     testWidgets(
+        'wrap on a collapsed scrollable burns bounded hops, not frames',
+        (tester) async {
+      final controller = ScrollController();
+      final first = FocusNode();
+
+      // Same collapsed-viewport shape as the edge test above, but the
+      // region wraps: with no line below to wrap to, the rewind chain
+      // must drain its bounded hops and land, never loop per frame.
+      await tester.pumpWidget(tvApp(
+        home: DpadRegion(
+          verticalEdge: DpadEdgeBehavior.wrap,
+          child: SizedBox(
+            height: 0,
+            child: SingleChildScrollView(
+              controller: controller,
+              child: Column(children: [
+                SizedBox(
+                  height: 100,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: 10,
+                    itemBuilder: (context, index) => DpadFocusable(
+                      focusNode: index == 0 ? first : null,
+                      autofocus: index == 0,
+                      effects: const <DpadEffect>[],
+                      child: SizedBox(width: 100, child: Text('item$index')),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 400),
+              ]),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(first.hasPrimaryFocus, isTrue);
+      final double settled = controller.offset;
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      // The zero-step rewind hops drain in a bounded post-frame chain and
+      // settle. (Before the no-progress guard, this site consumed the key
+      // in an unproductive scroll-retry instead — pinned red at the stop
+      // and lineWrap sites; this test pins the wrap path's termination.)
+      await tester.pumpAndSettle();
+
+      expect(first.hasPrimaryFocus, isTrue,
+          reason: 'the only built line is its own wrap extreme');
+      expect(controller.offset, settled);
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
+    testWidgets(
+        'a collapsed cross-axis scrollable makes lineWrap report the edge',
+        (tester) async {
+      final controller = ScrollController();
+      final last = FocusNode();
+      final edges = <TraversalDirection>[];
+
+      // lineWrap reveals the next line by scrolling cross-axis; when that
+      // scrollable is collapsed, the reveal hop cannot progress and the
+      // key must fall through to onEdge.
+      await tester.pumpWidget(tvApp(
+        home: DpadRegion(
+          horizontalEdge: DpadEdgeBehavior.lineWrap,
+          onEdge: edges.add,
+          child: SizedBox(
+            height: 0,
+            child: SingleChildScrollView(
+              controller: controller,
+              child: Column(children: [
+                SizedBox(
+                  height: 100,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: [
+                      for (int i = 0; i < 2; i++)
+                        DpadFocusable(
+                          focusNode: i == 1 ? last : null,
+                          autofocus: i == 1,
+                          effects: const <DpadEffect>[],
+                          child: SizedBox(width: 100, child: Text('item$i')),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 400),
+              ]),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(last.hasPrimaryFocus, isTrue);
+      final double settled = controller.offset;
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(edges, [TraversalDirection.right],
+          reason: 'the cross-axis reveal cannot scroll a collapsed '
+              'viewport, so the wrap must report the edge');
+      expect(controller.offset, settled);
+      expect(last.hasPrimaryFocus, isTrue);
+    });
+
+    testWidgets(
+        'outside any region, a collapsed scrollable leaves the key '
+        'unhandled without looping', (tester) async {
+      final controller = ScrollController();
+      final first = FocusNode();
+
+      // No DpadRegion: the fallback scroll-and-retry runs at the top
+      // level; with zero progress possible it must return false (key
+      // unhandled) and schedule no follow-up frames.
+      await tester.pumpWidget(tvApp(
+        home: SizedBox(
+          height: 0,
+          child: SingleChildScrollView(
+            controller: controller,
+            child: Column(children: [
+              SizedBox(
+                height: 100,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: 10,
+                  itemBuilder: (context, index) => DpadFocusable(
+                    focusNode: index == 0 ? first : null,
+                    autofocus: index == 0,
+                    effects: const <DpadEffect>[],
+                    child: SizedBox(width: 100, child: Text('item$index')),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 400),
+            ]),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(first.hasPrimaryFocus, isTrue);
+      final double settled = controller.offset;
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      await tester.pump();
+
+      expect(first.hasPrimaryFocus, isTrue);
+      expect(controller.offset, settled);
+      expect(tester.binding.hasScheduledFrame, isFalse,
+          reason: 'the unproductive fallback must not park frame work');
+    });
+
+    testWidgets('a 1-pixel viewport still crawls in sub-pixel hops',
+        (tester) async {
+      final controller = ScrollController();
+      final first = FocusNode();
+      final second = FocusNode();
+
+      // Guard threshold boundary: a 1px viewport steps 0.8px per hop —
+      // below a full pixel, but real progress; the no-progress guard must
+      // not bail out and swallow the move.
+      await tester.pumpWidget(tvApp(
+        home: DpadRegion(
+          child: SizedBox(
+            width: 1,
+            height: 100,
+            child: ListView.builder(
+              controller: controller,
+              scrollDirection: Axis.horizontal,
+              // The floor (3.19) predates scrollCacheExtent.
+              // ignore: deprecated_member_use
+              cacheExtent: 0,
+              itemCount: 40,
+              itemBuilder: (context, index) => DpadFocusable(
+                focusNode: index == 0
+                    ? first
+                    : (index == 1 ? second : null),
+                autofocus: index == 0,
+                effects: const <DpadEffect>[],
+                child: SizedBox(width: 12, child: Text('item$index')),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(first.hasPrimaryFocus, isTrue);
+      final double settled = controller.offset;
+      expect(settled, greaterThan(0),
+          reason: 'the 1px viewport cannot show even one 12px item');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pumpAndSettle();
+
+      expect(second.hasPrimaryFocus, isTrue,
+          reason: 'sub-pixel hops must keep revealing and moving');
+      expect(controller.offset, greaterThan(settled));
+    });
+
+    testWidgets(
         'wrap rewinds a lazy list to the true first item, '
         'not the furthest cached one', (tester) async {
       final controller = ScrollController();

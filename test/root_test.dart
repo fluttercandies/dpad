@@ -1137,6 +1137,47 @@ void main() {
       expect(a.hasPrimaryFocus, isTrue);
     });
 
+    testWidgets(
+        'repeated resumes while a plain restore is queued restore once',
+        (tester) async {
+      final a = FocusNode();
+      final b = FocusNode();
+      final restored = <String>[];
+
+      await tester.pumpWidget(tvApp(
+        home: Row(children: [item('a', a, autofocus: true), item('b', b)]),
+        onFocusChange: (node) {
+          if (node == b) {
+            restored.add('b');
+          }
+        },
+      ));
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      expect(b.hasPrimaryFocus, isTrue);
+      restored.clear();
+
+      // A queued plain restore followed by two resume events in a row:
+      // the flag accumulates idempotently and the restore runs once.
+      Dpad.of(tester.element(find.text('a'))).clearFocus();
+      await null;
+      await null;
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+
+      await tester.pumpAndSettle();
+      expect(b.hasPrimaryFocus, isTrue);
+      expect(restored, ['b'],
+          reason: 'focus returns to b exactly once, not per resume event');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.pump();
+      expect(a.hasPrimaryFocus, isTrue);
+    });
+
     // Deliberate semantics: Dpad does not gate key handling on lifecycle
     // states — the OS delivers no key events while the app is truly
     // backgrounded anyway, and on desktops a brief `inactive` (window
