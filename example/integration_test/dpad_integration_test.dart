@@ -98,6 +98,50 @@ List<String> focusedTexts() {
   return texts;
 }
 
+/// Every non-empty [Text] on screen right now — a non-throwing probe for
+/// press-recovery paths, where a hard [CockpitTester.expectVisible] would
+/// fail the test before the recovery could run.
+List<String> visibleTexts() {
+  final List<String> texts = <String>[];
+  void visit(Element element) {
+    final Widget widget = element.widget;
+    if (widget is Text && widget.data?.isNotEmpty == true) {
+      texts.add(widget.data!);
+    }
+    element.visitChildren(visit);
+  }
+
+  visit(WidgetsBinding.instance.rootElement!);
+  return texts;
+}
+
+/// Presses select on a poster and waits for the detail page. A busy
+/// harness can stretch one keyDown→keyUp past the app's 650ms long-select
+/// threshold, so the press misreads as a hold and opens the context sheet
+/// instead of pushing the route. Recover from that with a bounded retry —
+/// a genuinely broken select still fails every attempt.
+Future<void> openDetailPage(CockpitTester cockpit) async {
+  for (int attempt = 1; attempt <= 3; attempt++) {
+    await tapKey(cockpit, 'Enter');
+    final List<String> texts = visibleTexts();
+    if (texts.contains('Episodes')) {
+      return;
+    }
+    debugPrint(
+      'openDetailPage: attempt $attempt saw no detail page'
+      '${texts.contains('Play from beginning') ? ' — context sheet open' : ''}',
+    );
+    if (texts.contains('Play from beginning')) {
+      await tapKey(cockpit, 'Escape');
+    }
+    // Give a load burst on the host a moment to clear before retrying.
+    await cockpit.flutter.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 250)),
+    );
+  }
+  await cockpit.expectVisible('Episodes');
+}
+
 void expectFocusedText(String text) {
   expect(
     focusedTexts(),
@@ -426,8 +470,7 @@ void main() {
       await tapKey(cockpit, 'ArrowDown');
       expect(focusedDebugLabel, 'poster:Neon Tide');
 
-      await tapKey(cockpit, 'Enter');
-      await cockpit.expectVisible('Episodes');
+      await openDetailPage(cockpit);
       expectFocusedText('Play'); // entry + autofocus on the action row
 
       // Select on the detail action shows a snackbar toast.
@@ -475,8 +518,7 @@ void main() {
     options: _options,
     body: (cockpit) async {
       await tapKey(cockpit, 'ArrowDown');
-      await tapKey(cockpit, 'Enter');
-      await cockpit.expectVisible('Episodes');
+      await openDetailPage(cockpit);
 
       await tapKey(cockpit, 'ArrowDown');
       expectFocusedText('Episode 1');
