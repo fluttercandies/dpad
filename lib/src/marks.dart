@@ -12,7 +12,8 @@ abstract final class DpadMarks {
   static final Expando<bool> entry = Expando<bool>('dpad.entry');
 
   /// Returns the geometry of [node] in global coordinates, or `null` when
-  /// the node is not attached to a laid-out render object.
+  /// the node is not attached to a laid-out render object or its geometry is
+  /// not finite.
   static Rect? rectOf(FocusNode node) {
     final BuildContext? context = node.context;
     if (context == null || !context.mounted) {
@@ -24,10 +25,14 @@ abstract final class DpadMarks {
         !renderObject.hasSize) {
       return null;
     }
-    return MatrixUtils.transformRect(
+    final rect = MatrixUtils.transformRect(
       renderObject.getTransformTo(null),
       Offset.zero & renderObject.size,
     );
+    // A non-finite rect is not usable geometry: an ancestor transform can go
+    // non-finite for a frame (an overscroll stretch driven by a fling is the
+    // usual case), and every caller already treats `null` as "no rect yet".
+    return rect.isFinite ? rect : null;
   }
 
   /// Whether [node] can be focused right now.

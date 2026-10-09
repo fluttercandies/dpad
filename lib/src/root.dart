@@ -557,7 +557,12 @@ class _DpadDebugOverlayState extends State<_DpadDebugOverlay>
     final Rect? rect = (node == null || node is FocusScopeNode)
         ? null
         : DpadMarks.rectOf(node);
-    if (node == null || rect == null) {
+    // The focused rect can be non-finite for a frame (a transform that went
+    // non-finite mid-animation); rounding its size for the label or
+    // positioning the outline with it would throw `Infinity or NaN toInt`
+    // once per frame. Blank this frame instead: a debug tool must never be
+    // the thing that takes the frame down.
+    if (node == null || rect == null || !rect.isFinite) {
       return const SizedBox.shrink();
     }
     final DpadRegionState? region = DpadRegion.ofNode(node);
