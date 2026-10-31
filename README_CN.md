@@ -60,7 +60,7 @@ Flutter 内置的方向焦点只会选择几何上*最近*的组件。在真实�
 
 ```yaml
 dependencies:
-  dpad: ^3.0.0
+  dpad: ^3.2.0
 ```
 
 ### 2. 安装根组件（一行）
@@ -218,6 +218,79 @@ DpadFocusable(
 )
 ```
 
+## 飞行高亮
+
+逐 item 效果只能在原地装饰。想要主流电视与游戏界面那种连续效果 ——
+一个高亮框从 item A 实际滑动到 item B —— 打开飞行高亮即可：
+
+```dart
+MaterialApp(
+  builder: Dpad.wrap(
+    highlight: const DpadHighlight(),   // 默认描边环，220ms 飞行
+  ),
+)
+```
+
+开启期间，逐 item 效果建议只保留一个抬起（描边交给高亮框）：
+
+```dart
+theme: const DpadThemeData(effects: [DpadScaleEffect()]),
+```
+
+飞行会跟随焦点项穿过滚动、路由转场与缩放动画；按键快过动画时平滑连锁
+转向；首次出现原地淡入，焦点丢失时淡出。设置 `nudgeOffset` 后，撞边界
+的移动（行末、列表底）会让高亮框朝该方向弹一下作为反馈。
+
+**形状也会跟随。** 高亮会读取每个 item 自己的轮廓（`ClipRRect`、
+`BoxDecoration` 的圆角或圆形、`ClipOval`、物理模型），飞行时在两种形状
+之间插值变形 —— 从 12px 圆角的海报飞到圆形头像，圆角会平滑长成半圆
+（example 的 Library 网格就是演示）。带圆角的效果（环、聚光、暗角、
+光晕）默认跟随形状（`followShape: true`，显式开关，可关），显式传
+`borderRadius` 则固定不变。形状数据在你自己的模型里？用
+`DpadHighlight.radiusOf(node)` 把自己的表和官方检测混着用。
+
+**一个配置类型、三个放置点** —— 样式随焦点就近解析：
+
+```dart
+Dpad(highlight: const DpadHighlight(), ...)   // 全局默认
+
+DpadHighlightTheme(                           // 页面或区域
+  data: const DpadHighlight(
+    effects: [DpadHighlightBracketsEffect()], // 游戏准星风
+  ),
+  child: characterGrid,
+)
+
+DpadFocusable(                                // 单个 item
+  highlight: DpadHighlight.none,              // …或让该项退出高亮
+  child: customPaintedButton,
+)
+```
+
+**外观是可组合的效果** —— 运动参数在 `DpadHighlight` 上（`duration`、
+`curve`、`padding`、`appearDuration`、`nudgeOffset`），外观在效果列表上。
+想要弹性飞行就换 `curve: Curves.easeOutBack`。内置效果：
+`DpadHighlightRingEffect`（tvOS 描边环）、`DpadHighlightGlowEffect`、
+`DpadHighlightSpotlightEffect`（半透明填充）、`DpadHighlightBracketsEffect`
+（游戏 HUD 四角括号）、`DpadHighlightVignetteEffect`（压暗框外全部内容），
+以及 `DpadHighlightCustomEffect` 兜底。
+
+**底层能力是真正的 API**：继承 `DpadHighlightEffect` 或使用 custom 效果 ——
+两者每帧都能拿到实时 `DpadHighlightState`：插值中的 `rect` 与 `radius`、
+当前停靠的 `node`、飞行时间线（`fromNode`、`t`），以及 `pressed`/`visible`。
+引擎没替你插值的量（颜色、阴影、私有的形状表）都能自己过渡：
+
+```dart
+DpadHighlightCustomEffect((context, state) {
+  final Color color = Color.lerp(
+    posterColorOf(state.fromNode ?? state.node),
+    posterColorOf(state.node),
+    state.t,
+  )!;
+  return state.positioned(MyFocusHalo(color: color, radius: state.radius));
+})
+```
+
 ## 遥控器交互
 
 ```dart
@@ -264,6 +337,38 @@ Dpad.wrap(
   ),
 )
 ```
+
+### 游戏手柄
+
+在 Android（含 Android TV 与 Fire TV）上，配对的游戏手柄开箱即用：
+十字键上报为方向键，`A`/`B` 键已在默认 `DpadKeySet` 中映射为确认/返回。
+`gameButtonX`、`gameButtonY` 和肩键等按键同样会以 `LogicalKeyboardKey`
+到达 —— 用 `copyWith` 映射为额外的确认键，或挂到 `Dpad.shortcuts` 作为
+动作。
+
+手柄有两件事是按键重映射覆盖不到的：
+
+* **模拟摇杆**上报的是轴运动事件而非按键事件，Flutter 不会把它们合成为
+  按键。用游戏手柄插件读取，再编程式驱动导航 —— `DpadController` 正是为
+  非键盘输入源准备的：
+
+  ```dart
+  gamepads.events?.listen((event) {
+    final dpad = Dpad.of(navigatorContext);
+    switch (event.key) {
+      case GamepadButton.dpadUp:    dpad.moveUp();
+      case GamepadButton.dpadDown:  dpad.moveDown();
+      case GamepadButton.dpadLeft:  dpad.moveLeft();
+      case GamepadButton.dpadRight: dpad.moveRight();
+      default: break;
+    }
+  });
+  ```
+
+* **Web 与桌面**平台不会把游戏手柄输入作为键盘事件交付（浏览器只通过
+  Gamepad API 暴露手柄；macOS/Windows 将其视为 HID 游戏设备），因此同样
+  需要插件胶水。Steam Input、JoyToKey 这类桌面映射器也可行 —— 它们合成
+  真实按键事件，默认键集本来就认。
 
 ## 编程式控制
 
@@ -337,7 +442,7 @@ flutter run -d macos   # 或 windows、linux、Android TV 模拟器…
 | 桌面（macOS/Windows/Linux） | 方向键 —— 开发调试利器 |
 | Web | 方向键（即使 Flutter 默认不映射，Dpad 也会映射） |
 
-要求 Flutter `>= 3.24`。
+要求 Flutter `>= 3.19`。
 
 ## 从 2.x 迁移
 

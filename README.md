@@ -60,7 +60,7 @@ Everything is built on Flutter's own focus system (`FocusTraversalPolicy`, `Shor
 
 ```yaml
 dependencies:
-  dpad: ^3.0.0
+  dpad: ^3.2.0
 ```
 
 ### 2. Install the root (one line)
@@ -222,6 +222,89 @@ DpadFocusable(
 )
 ```
 
+## Flying highlight
+
+Per-item effects decorate items *in place*. For the continuous look of
+mainstream TV and game interfaces — one highlight that physically slides from
+item A to item B — turn on the flying highlight:
+
+```dart
+MaterialApp(
+  builder: Dpad.wrap(
+    highlight: const DpadHighlight(),   // ring by default, 220ms flights
+  ),
+)
+```
+
+While it is on, pair per-item effects with a simple lift (the highlight
+carries the outline):
+
+```dart
+theme: const DpadThemeData(effects: [DpadScaleEffect()]),
+```
+
+The flight follows the focused item through scrolls, route transitions and
+scale animations, chains smoothly when keys are pressed faster than flights
+finish, fades in place on first appearance and fades out when focus is lost.
+A blocked move (last item of a row, bottom of a list) bounces the highlight
+off the edge when you set `nudgeOffset`.
+
+**It follows shapes, too.** The highlight reads each item's own silhouette
+(`ClipRRect`, a `BoxDecoration` corner radius or circle, `ClipOval`, physical
+models) and morphs its corner radius between them mid-flight — a 12-pixel
+poster grows into a circular avatar's full rounding as the highlight flies
+there (the example's Library grid demonstrates it). The rounded effects
+(ring, spotlight, vignette, glow) follow the shape by default
+(`followShape: true`, an explicit switch); pass an explicit `borderRadius`
+to pin it. Shape data lives somewhere else? Mix your own table with the
+shipped detection via `DpadHighlight.radiusOf(node)`.
+
+**One configuration type, three placement points** — resolved for wherever
+focus lands, nearest first:
+
+```dart
+Dpad(highlight: const DpadHighlight(), ...)   // app-wide default
+
+DpadHighlightTheme(                           // a page or section
+  data: const DpadHighlight(
+    effects: [DpadHighlightBracketsEffect()], // the game reticle look
+  ),
+  child: characterGrid,
+)
+
+DpadFocusable(                                // a single item
+  highlight: DpadHighlight.none,              // …or opt the item out
+  child: customPaintedButton,
+)
+```
+
+**Looks are composable effects** — motion knobs live on `DpadHighlight`
+(`duration`, `curve`, `padding`, `appearDuration`, `nudgeOffset`), looks on
+the effect list. Try `curve: Curves.easeOutBack` for a springy flight.
+Built-ins: `DpadHighlightRingEffect` (tvOS ring), `DpadHighlightGlowEffect`,
+`DpadHighlightSpotlightEffect` (translucent fill),
+`DpadHighlightBracketsEffect` (game HUD corners),
+`DpadHighlightVignetteEffect` (dims everything outside the item), and
+`DpadHighlightCustomEffect` for anything else.
+
+**The escape hatch is a real API**: subclass `DpadHighlightEffect` or use the
+custom effect — both receive the live `DpadHighlightState` every frame: the
+interpolating `rect` and `radius`, the tracked `node`, the flight's timeline
+(`fromNode`, `t`), plus `pressed` and `visible`. That is everything needed to
+interpolate values the engine does not — colors, shadows, private shape
+tables:
+
+```dart
+DpadHighlightCustomEffect((context, state) {
+  final Color color = Color.lerp(
+    posterColorOf(state.fromNode ?? state.node),
+    posterColorOf(state.node),
+    state.t,
+  )!;
+  return state.positioned(MyFocusHalo(color: color, radius: state.radius));
+})
+```
+
 ## Remote interactions
 
 ```dart
@@ -269,6 +352,41 @@ Dpad.wrap(
   ),
 )
 ```
+
+### Game controllers
+
+On Android (including Android TV and Fire TV), paired game controllers work
+out of the box: the d-pad reports as arrow keys and the `A`/`B` buttons are
+already mapped to select/back in the default `DpadKeySet`. Buttons like
+`gameButtonX`, `gameButtonY` and the shoulders arrive as
+`LogicalKeyboardKey`s too — map them as extra select keys via `copyWith`, or
+as actions via `Dpad.shortcuts`.
+
+Two things a controller can do that no key remap can reach:
+
+* **Analog sticks** report as axis motion events, not key events, and
+  Flutter does not synthesize keys from them. Read them with a gamepad plugin
+  and drive navigation programmatically — `DpadController` exists exactly for
+  input sources that are not keyboards:
+
+  ```dart
+  gamepads.events?.listen((event) {
+    final dpad = Dpad.of(navigatorContext);
+    switch (event.key) {
+      case GamepadButton.dpadUp:    dpad.moveUp();
+      case GamepadButton.dpadDown:  dpad.moveDown();
+      case GamepadButton.dpadLeft:  dpad.moveLeft();
+      case GamepadButton.dpadRight: dpad.moveRight();
+      default: break;
+    }
+  });
+  ```
+
+* **Web and desktop** never deliver gamepad input as keyboard events, so
+  controllers need the same plugin glue there (browsers expose gamepads only
+  through the Gamepad API; macOS/Windows treat them as HID gamepads).
+  Desktop mappers like Steam Input or JoyToKey also work — they synthesize
+  real key events, which the default key set already speaks.
 
 ## Programmatic control
 
@@ -348,7 +466,7 @@ flutter run -d macos   # or windows, linux, an Android TV emulator…
 | Desktop (macOS/Windows/Linux) | Arrow keys — ideal for development |
 | Web | Arrow keys (Dpad maps them even where Flutter doesn't) |
 
-Requires Flutter `>= 3.24`.
+Requires Flutter `>= 3.19`.
 
 ## Migrating from 2.x
 

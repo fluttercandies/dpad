@@ -5,6 +5,109 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-11-01
+
+### Added
+
+- **Flying highlight** — the continuous focus indicator of mainstream TV and
+  game interfaces: one highlight that slides from item A to item B as the
+  d-pad moves, morphing between their sizes. Enable it app-wide with
+  `Dpad(highlight: const DpadHighlight())`; restyle a page or section by
+  nesting a `DpadHighlightTheme`, a single item with
+  `DpadFocusable.highlight` (or opt it out with `DpadHighlight.none`). The
+  style is resolved for wherever focus lands, nearest first.
+  - The flight follows the focused item through scrolls, route transitions
+    and focus-effect transforms, re-measuring both endpoints every frame (a
+    scrolling list moves the takeoff item too); mid-flight retargeting
+    chains smoothly when keys outrun the animation; the first appearance fades in place and lost
+    focus fades out. `nudgeOffset` adds the directional edge bounce games
+    use for blocked moves. Motion knobs (`duration`, `curve`, `padding`,
+    `appearDuration`, `nudgeOffset`) live on `DpadHighlight`.
+  - Looks are composable `DpadHighlightEffect`s, each with its own knobs:
+    `DpadHighlightRingEffect` (the tvOS ring, and the default),
+    `DpadHighlightGlowEffect`, `DpadHighlightSpotlightEffect`,
+    `DpadHighlightBracketsEffect` (game HUD corners),
+    `DpadHighlightVignetteEffect` (dims everything outside the item) and
+    `DpadHighlightCustomEffect`. Subclassing `DpadHighlightEffect` or using
+    the custom effect gives every-frame access to the live
+    `DpadHighlightState` — the interpolating `rect` and `radius`, the
+    tracked `node`, the flight timeline (`fromNode`, `t`) and
+    `pressed`/`visible` — enough to interpolate values the engine does not
+    (colors, shadows, private shape tables).
+  - **Shape following** — the highlight reads each item's own silhouette
+    (`ClipRRect`, a `BoxDecoration` or `ShapeDecoration` corner radius or
+    circle, `ClipOval`, physical shape models — `Material(shape:)` and with
+    it Material 3 cards; corners resolve in the app's text direction) and
+    morphs its corner radius between shapes mid-flight:
+    a rounded poster becomes a circular avatar's ring as the highlight flies
+    there. The rounded effects (ring, spotlight, vignette, glow) follow the
+    shape by default (`followShape: true`); an explicit `borderRadius` (a
+    number) pins it; shape data from your own models mixes in through the public
+    `DpadHighlight.radiusOf(node)`.
+  - While the highlight is on, pair per-item effects with a simple lift —
+    `DpadThemeData(effects: [DpadScaleEffect()])` — so the ring carries the
+    outline (the example app demonstrates the pairing).
+
+### Fixed
+
+- **The flying highlight frames what the user actually sees.** A focused
+  item's `DpadScaleEffect` lift grows it beyond its layout rect, but the
+  highlight measured the un-scaled rect — the card poked out of the ring on
+  every side. The steady-state focus scale is now recorded per item and the
+  highlight inflates its target rect around the center to match (custom
+  builders draw their own presentation and stay at 1.0; `DpadHighlight`
+  `padding` covers anything else).
+- **The highlight can no longer strand mid-route.** It used to stop
+  following the focused item three frames after its flight ended — even if
+  the route transition was still sliding the item into place, freezing the
+  ring offset from the focused button. The tracker now only sleeps once the
+  target itself has stopped moving.
+- **Focus changes into a still-building route now fly instead of
+  teleporting.** When the focus notification outran the new route's first
+  frame, the highlight stayed at the old item and then snapped onto the new
+  one; it now flies from wherever it sits as soon as the target's geometry
+  exists.
+- **Typing in a text field wrapped by a `DpadFocusable` is no longer
+  hijacked.** With `excludeChildFocus: false` (the documented way to embed
+  a field), the item's own select/direction handlers claimed
+  `space`/`enter` and the arrows while the caret was inside: select fired
+  mid-sentence and the keys never reached the field. Item handlers now
+  stand down whenever a descendant holds primary focus — the root's
+  text-field contract stays in charge of letting arrows escape at the
+  caret edges.
+- **Freezing navigation cancels a lazy-reveal retry in flight.** Setting
+  `Dpad.enabled = false` during the 160ms reveal scroll toward a
+  not-yet-built neighbor now stops the chained retry (like it already
+  stopped wrap-rewind chains) instead of moving focus once more after the
+  freeze.
+- **A same-look rebuild no longer relaunches highlight flights.** The
+  built-in effects compare structurally now, so a `MaterialApp.builder`
+  rebuild carrying an inline-but-equal `DpadHighlight` (a theme or locale
+  change) leaves a landed highlight landed instead of replaying a 220ms
+  flight of rebuilds.
+- **The edge bounce keeps its rhythm on key repeats.** Holding a direction
+  against an edge used to restart the bounce from zero on every repeat —
+  a stutter; the arc now finishes and the next repeat starts the next
+  bounce.
+
+### Performance
+
+- **Flying-highlight frame costs cut.** The vignette wash paints with a
+  single even-odd path instead of a full-screen offscreen layer per flight
+  frame; silhouette detection is memoized per item instead of re-walking
+  its render subtree every frame; rect measurement takes one transform
+  walk instead of two global round-trips; scrolls that cannot move the
+  focused item (a background carousel) no longer keep the tracker awake;
+  and the fade-out stops the flight and bounce instead of letting them
+  run out.
+
+### Documented
+
+- **Game controller support matrix** — Android controllers work out of the
+  box (d-pad as arrows, `A`/`B` as select/back in the default key set); the
+  README now covers remapping the remaining buttons and bridging analog
+  sticks / web / desktop through a gamepad plugin into `DpadController`.
+
 ## [3.1.1] - 2026-10-07
 
 ### Fixed
