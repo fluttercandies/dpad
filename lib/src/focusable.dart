@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import 'effects.dart';
+import 'highlight.dart';
 import 'key_set.dart';
 import 'marks.dart';
 import 'region.dart';
@@ -79,6 +80,7 @@ class DpadFocusable extends StatefulWidget {
     this.autofocus = false,
     this.enabled = true,
     this.entry = false,
+    this.highlight,
     this.focusNode,
     this.debugLabel,
     this.autoScroll = true,
@@ -135,6 +137,18 @@ class DpadFocusable extends StatefulWidget {
   /// Marks this item as its region's entry target. See
   /// [DpadEnterBehavior.entry]. One per region.
   final bool entry;
+
+  /// The flying-highlight configuration for this item.
+  ///
+  /// Overrides the nearest [DpadHighlightTheme] and the [Dpad] root's
+  /// [Dpad.highlight] — pass [DpadHighlight.none] to keep the flying
+  /// highlight off this item entirely (for items that draw their own focus
+  /// presentation). `null` (the default) inherits.
+  ///
+  /// Like a [DpadHighlightTheme], the override re-resolves when focus
+  /// moves — changing it while its own item stays focused applies on the
+  /// next focus change.
+  final DpadHighlight? highlight;
 
   /// An external focus node to use instead of the internal one.
   final FocusNode? focusNode;
@@ -196,13 +210,24 @@ class _DpadFocusableState extends State<DpadFocusable> {
   void didUpdateWidget(DpadFocusable oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.focusNode != widget.focusNode) {
-      _unmark(oldWidget.focusNode ?? _internalNode);
+      final FocusNode? old = oldWidget.focusNode ?? _internalNode;
+      if (old != null) {
+        // The region's memory must not restore focus to a node this
+        // widget no longer owns.
+        _region?.forget(old);
+      }
+      _unmark(old);
       _mark(_node);
     } else {
       if (oldWidget.entry != widget.entry) {
         DpadMarks.entry[_node] = widget.entry ? true : null;
       }
+      if (oldWidget.highlight != widget.highlight) {
+        DpadMarks.highlightStyle[_node] = widget.highlight;
+      }
       if (oldWidget.debugLabel != widget.debugLabel) {
+        // Assign through — clearing back to null must not leave the old
+        // label behind.
         _node.debugLabel = widget.debugLabel;
       }
     }
@@ -211,6 +236,7 @@ class _DpadFocusableState extends State<DpadFocusable> {
   void _mark(FocusNode node) {
     DpadMarks.managed[node] = true;
     DpadMarks.entry[node] = widget.entry ? true : null;
+    DpadMarks.highlightStyle[node] = widget.highlight;
     if (widget.debugLabel != null) {
       node.debugLabel = widget.debugLabel;
     }
@@ -222,6 +248,9 @@ class _DpadFocusableState extends State<DpadFocusable> {
     }
     DpadMarks.managed[node] = null;
     DpadMarks.entry[node] = null;
+    DpadMarks.highlightStyle[node] = null;
+    DpadMarks.visualScale[node] = null;
+    DpadMarks.pressed[node] = null;
   }
 
   @override
@@ -283,6 +312,11 @@ class _DpadFocusableState extends State<DpadFocusable> {
   }
 
   void _setPressed(bool value) {
+    // Mirror the press onto the node so the flying highlight (and anything
+    // else tracking it) sees it, and wake the highlight so effects reading
+    // DpadHighlightState.pressed repaint.
+    DpadMarks.pressed[_node] = value;
+    highlightHostOf(context)?.wake();
     if (_pressed != value && mounted) {
       setState(() => _pressed = value);
     } else {
@@ -295,6 +329,14 @@ class _DpadFocusableState extends State<DpadFocusable> {
   // -----------------------------------------------------------------------
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    // A descendant holds primary focus (`excludeChildFocus: false`
+    // wrapping a text field): the keys belong to it. Claiming select here
+    // would eat spaces and enters mid-sentence; claiming directions would
+    // trap the caret. The keys bubble on — the root's text-field contract
+    // is what eventually lets arrows leave the field.
+    if (!identical(FocusManager.instance.primaryFocus, node)) {
+      return KeyEventResult.ignored;
+    }
     final DpadKeySet keys = Dpad.keySetOf(context);
     final LogicalKeyboardKey key = event.logicalKey;
 
@@ -387,16 +429,24 @@ class _DpadFocusableState extends State<DpadFocusable> {
       content = ExcludeFocus(child: content);
     }
 
+    final List<DpadEffect>? effects = widget.builder == null
+        ? (widget.effects ?? DpadTheme.of(context).effects)
+        : null;
     if (widget.builder != null) {
       content = widget.builder!(context, state, content);
     } else {
-      content = DpadEffect.wrap(
-        context,
-        widget.effects ?? DpadTheme.of(context).effects,
-        state,
-        content,
-      );
+      content = DpadEffect.wrap(context, effects!, state, content);
     }
+    // Record the steady-state focused scale so the flying highlight frames
+    // the scaled visual instead of the un-scaled layout rect (custom
+    // builders draw their own presentation; theirs stays 1.0).
+    double visualScale = 1.0;
+    for (final DpadEffect effect in effects ?? const <DpadEffect>[]) {
+      if (effect is DpadScaleEffect) {
+        visualScale *= effect.scale;
+      }
+    }
+    DpadMarks.visualScale[_node] = visualScale == 1.0 ? null : visualScale;
 
     if (widget.tapToSelect) {
       content = MouseRegion(

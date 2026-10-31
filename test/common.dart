@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 Widget tvApp({
   required Widget home,
   DpadThemeData? theme,
+  DpadHighlight? highlight,
   DpadKeySet keySet = const DpadKeySet(),
   Map<LogicalKeyboardKey, VoidCallback> shortcuts =
       const <LogicalKeyboardKey, VoidCallback>{},
@@ -20,6 +21,7 @@ Widget tvApp({
   return MaterialApp(
     builder: Dpad.wrap(
       theme: theme,
+      highlight: highlight,
       keySet: keySet,
       shortcuts: shortcuts,
       onBack: onBack,
@@ -45,12 +47,14 @@ Widget item(
   bool enabled = true,
   bool entry = false,
   double size = 60,
+  DpadHighlight? highlight,
 }) {
   return DpadFocusable(
     focusNode: node,
     autofocus: autofocus,
     enabled: enabled,
     entry: entry,
+    highlight: highlight,
     onSelect: onSelect,
     onLongSelect: onLongSelect,
     onFocusChange: onFocusChange,

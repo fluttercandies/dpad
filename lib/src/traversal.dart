@@ -712,6 +712,10 @@ class DpadTraversalPolicy extends ReadingOrderTraversalPolicy {
     TraversalDirection? scrollDirection,
   }) {
     final TraversalDirection scroll = scrollDirection ?? direction;
+    // The retry below runs after an awaited scroll animation; a freeze or
+    // a focus recovery in between must cancel it, exactly like it cancels
+    // wrap-rewind chains.
+    final int epoch = _rewindEpoch;
     final ScrollableState? scrollable =
         _nearestScrollableToward(node, scroll, boundary);
     if (scrollable == null) {
@@ -741,7 +745,9 @@ class DpadTraversalPolicy extends ReadingOrderTraversalPolicy {
     )
         .then((_) {
       // Retry once the newly built content is in place.
-      if (!node.hasPrimaryFocus || node.context == null) {
+      if (epoch != _rewindEpoch ||
+          !node.hasPrimaryFocus ||
+          node.context == null) {
         return;
       }
       WidgetsBinding.instance.addPostFrameCallback((_) {

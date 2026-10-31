@@ -158,6 +158,54 @@ void main() {
       expect(first.hasPrimaryFocus, isFalse);
     });
 
+    testWidgets('freezing navigation cancels a lazy-scroll retry mid-flight',
+        (tester) async {
+      final first = FocusNode();
+      final controller = ScrollController();
+      addTearDown(controller.dispose);
+      // Items as wide as the viewport, so the neighbor is never built and
+      // every press takes the reveal-retry path (scroll, then re-search).
+      Widget buildApp({required bool enabled}) => tvApp(
+            enabled: enabled,
+            home: SizedBox(
+              height: 100,
+              child: ListView.builder(
+                controller: controller,
+                // ignore: deprecated_member_use
+                cacheExtent: 0,
+                scrollDirection: Axis.horizontal,
+                itemCount: 40,
+                itemBuilder: (context, index) => DpadFocusable(
+                  focusNode: index == 0 ? first : null,
+                  autofocus: index == 0,
+                  effects: const <DpadEffect>[],
+                  child: SizedBox(
+                      width: 800, height: 100, child: Text('item$index')),
+                ),
+              ),
+            ),
+          );
+      await tester.pumpWidget(buildApp(enabled: true));
+      await tester.pump();
+      expect(first.hasPrimaryFocus, isTrue);
+
+      // The press starts the 160ms reveal scroll with a retry chained
+      // after it; freeze while the scroll is still running.
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      // One frame for the reveal scroll to be scheduled, then land
+      // mid-animation.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 80));
+      expect(controller.offset, greaterThan(0),
+          reason: 'The reveal scroll is underway.');
+      await tester.pumpWidget(buildApp(enabled: false));
+      await tester.pumpAndSettle();
+
+      expect(FocusManager.instance.primaryFocus, same(first),
+          reason: 'The retry after the scroll is cancelled by the freeze, '
+              'exactly like wrap-rewind chains are.');
+    });
+
     testWidgets(
         'a collapsed (zero-size) scrollable reports the edge instead of '
         'retrying forever', (tester) async {

@@ -400,4 +400,73 @@ void main() {
           reason: 'autoScroll: false must never reveal the item');
     });
   });
+
+  group('wrapped text fields', () {
+    testWidgets('typing keys reach the field, never the item handlers',
+        (tester) async {
+      final node = FocusNode();
+      final inner = FocusNode();
+      final controller = TextEditingController();
+      int selected = 0;
+      TraversalDirection? interceptedDirection;
+
+      await tester.pumpWidget(tvApp(
+        home: Center(
+          child: DpadFocusable(
+            focusNode: node,
+            autofocus: true,
+            excludeChildFocus: false,
+            onSelect: () => selected++,
+            onDirection: (direction) {
+              interceptedDirection = direction;
+              return true;
+            },
+            effects: const <DpadEffect>[],
+            child: SizedBox(
+              width: 220,
+              child: TextField(
+                focusNode: inner,
+                controller: controller,
+                maxLines: 3,
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      inner.requestFocus();
+      await tester.pumpAndSettle();
+      expect(inner.hasPrimaryFocus, isTrue);
+
+      // Space and enter are the default select keys — while the caret
+      // lives inside, they belong to the field (tests cannot observe the
+      // inserted characters, which arrive through the IME channel, so
+      // the observable half is that select never fires).
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+      expect(selected, 0,
+          reason: 'Select must not fire while the caret lives inside.');
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(selected, 0);
+
+      // Arrows edit the caret; the item's interceptor stands down.
+      controller.text = 'hello';
+      controller.selection =
+          const TextSelection.collapsed(offset: 5);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.pump();
+      expect(controller.selection.extentOffset, 4,
+          reason: 'The arrow reached the caret instead of being consumed.');
+      expect(interceptedDirection, isNull);
+
+      // The guard cuts both ways: with the item itself focused, select
+      // still works.
+      node.requestFocus();
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(selected, 1);
+    });
+  });
 }

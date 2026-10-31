@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'colors.dart';
+
 /// The interaction state of a [DpadFocusable], passed to focus effects and
 /// custom builders.
 ///
@@ -87,15 +89,6 @@ abstract class DpadEffect {
   }
 }
 
-/// The Material primary when a [Theme] surrounds the item, white otherwise,
-/// so default-colored effects work (and stay neutral) in Material-less apps.
-Color _primaryColor(BuildContext context) {
-  if (context.findAncestorWidgetOfExactType<Theme>() == null) {
-    return const Color(0xFFFFFFFF);
-  }
-  return Theme.of(context).colorScheme.primary;
-}
-
 /// Scales the item up while focused and slightly back down while pressed —
 /// the classic TV "lift and press" feedback.
 class DpadScaleEffect extends DpadEffect {
@@ -165,7 +158,7 @@ class DpadBorderEffect extends DpadEffect {
 
   @override
   Widget build(BuildContext context, DpadFocusState state, Widget child) {
-    final Color resolved = color ?? _primaryColor(context);
+    final Color resolved = color ?? defaultEffectColor(context);
     return AnimatedContainer(
       duration: duration,
       foregroundDecoration: BoxDecoration(
@@ -212,7 +205,7 @@ class DpadGlowEffect extends DpadEffect {
 
   @override
   Widget build(BuildContext context, DpadFocusState state, Widget child) {
-    final Color resolved = color ?? _primaryColor(context);
+    final Color resolved = color ?? defaultEffectColor(context);
     return AnimatedContainer(
       duration: duration,
       decoration: BoxDecoration(
@@ -330,7 +323,7 @@ class DpadTintEffect extends DpadEffect {
 
   @override
   Widget build(BuildContext context, DpadFocusState state, Widget child) {
-    final Color resolved = color ?? _primaryColor(context);
+    final Color resolved = color ?? defaultEffectColor(context);
     return AnimatedContainer(
       duration: duration,
       foregroundDecoration: BoxDecoration(

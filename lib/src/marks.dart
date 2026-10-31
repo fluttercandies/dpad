@@ -1,5 +1,7 @@
 import 'package:flutter/widgets.dart';
 
+import 'highlight.dart';
+
 /// Internal per-[FocusNode] annotations shared between [DpadFocusable] and
 /// the traversal engine, without coupling them to each other.
 abstract final class DpadMarks {
@@ -10,6 +12,25 @@ abstract final class DpadMarks {
   /// Nodes flagged as the entry item of their region
   /// (`DpadFocusable(entry: true)`).
   static final Expando<bool> entry = Expando<bool>('dpad.entry');
+
+  /// Per-item flying-highlight overrides (`DpadFocusable(highlight: ...)`).
+  ///
+  /// A present value is the override — including [DpadHighlight.none], which
+  /// opts the item out of the highlight entirely. Absent means "inherit from
+  /// the enclosing [DpadHighlightTheme] or the [Dpad] root".
+  static final Expando<DpadHighlight> highlightStyle =
+      Expando<DpadHighlight>('dpad.highlightStyle');
+
+  /// Whether the select key (or a pointer) is currently held down on the
+  /// item that owns this node — the live press state for the flying
+  /// highlight's [DpadHighlightState.pressed].
+  static final Expando<bool> pressed = Expando<bool>('dpad.pressed');
+
+  /// The item's steady-state focused scale — the product of its
+  /// [DpadScaleEffect] factors. The flying highlight frames the scaled
+  /// visual, not the un-scaled layout rect; absent (or from a custom
+  /// builder, whose scale the package cannot know) means `1.0`.
+  static final Expando<double> visualScale = Expando<double>('dpad.visualScale');
 
   /// Returns the geometry of [node] in global coordinates, or `null` when
   /// the node is not attached to a laid-out render object.
@@ -44,6 +65,21 @@ abstract final class DpadMarks {
     return context != null && context.mounted && node.canRequestFocus;
   }
 
+  /// The node of the [DpadFocusable] that owns [node] — [node] itself when
+  /// it is a focusable's own node, otherwise the closest managed ancestor
+  /// (a focusable with `excludeChildFocus: false` wrapping an inner focus
+  /// target such as a text field), or `null` for foreign nodes.
+  static FocusNode? itemOf(FocusNode node) {
+    FocusNode? current = node;
+    while (current != null) {
+      if (managed[current] ?? false) {
+        return current;
+      }
+      current = current.parent;
+    }
+    return null;
+  }
+
   /// Picks the item that should receive focus when nothing better is known:
   /// the first entry-marked node, otherwise the topmost one at the start of
   /// the reading order — the leftmost in LTR, the rightmost in RTL.
@@ -52,12 +88,14 @@ abstract final class DpadMarks {
     double? bestTop;
     double? bestLeading;
     for (final FocusNode node in candidates) {
+      final Rect? rect = rectOf(node);
+      // An entry target still has to be focusable and laid out — a
+      // disabled or unbuilt entry would strand the initial focus.
+      if (rect == null || !node.canRequestFocus) {
+        continue;
+      }
       if (entry[node] ?? false) {
         return node;
-      }
-      final Rect? rect = rectOf(node);
-      if (rect == null) {
-        continue;
       }
       // Negate the RTL leading edge so "smaller wins" means "reading start"
       // for both text directions.

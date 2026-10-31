@@ -4,6 +4,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import 'highlight.dart';
 import 'key_set.dart';
 import 'marks.dart';
 import 'region.dart';
@@ -33,6 +34,8 @@ import 'traversal.dart';
 /// * **Remote key semantics** — back and menu callbacks, plus app-level
 ///   [shortcuts]. All of them automatically stand down while a text field
 ///   is being edited, so typing is never hijacked.
+/// * **A flying highlight** — the single focus indicator that slides from
+///   item to item as the d-pad moves, configured with [highlight].
 /// * **Focus resilience** — when the focused widget disappears (a list
 ///   refreshes, a dialog closes) or the app resumes from background, focus
 ///   is restored to the nearest sensible item instead of being lost, which
@@ -49,6 +52,7 @@ class Dpad extends StatefulWidget {
     this.enabled = true,
     this.keySet = const DpadKeySet(),
     this.theme,
+    this.highlight,
     this.onBack,
     this.onMenu,
     this.onFocusChange,
@@ -77,6 +81,15 @@ class Dpad extends StatefulWidget {
 
   /// Default styling and timing for descendant [DpadFocusable]s.
   final DpadThemeData? theme;
+
+  /// The flying highlight — a single focus indicator that slides from item
+  /// to item as the d-pad moves, the way mainstream TV and game interfaces
+  /// do. `null` (the default) keeps the classic per-item focus effects.
+  ///
+  /// This is the app-wide default; restyle pages or sections by nesting a
+  /// [DpadHighlightTheme], individual items with [DpadFocusable.highlight].
+  /// See [DpadHighlight] for the motion and look parameters.
+  final DpadHighlight? highlight;
 
   /// Called when a back key ([DpadKeySet.back]) is pressed.
   ///
@@ -171,6 +184,7 @@ class Dpad extends StatefulWidget {
     bool enabled = true,
     DpadKeySet keySet = const DpadKeySet(),
     DpadThemeData? theme,
+    DpadHighlight? highlight,
     bool Function()? onBack,
     VoidCallback? onMenu,
     ValueChanged<FocusNode?>? onFocusChange,
@@ -184,6 +198,7 @@ class Dpad extends StatefulWidget {
         enabled: enabled,
         keySet: keySet,
         theme: theme,
+        highlight: highlight,
         onBack: onBack,
         onMenu: onMenu,
         onFocusChange: onFocusChange,
@@ -202,6 +217,7 @@ class Dpad extends StatefulWidget {
 class _DpadState extends State<Dpad> with WidgetsBindingObserver {
   late final DpadController _controller = DpadController._(this);
   final DpadTraversalPolicy _policy = DpadTraversalPolicy();
+  final DpadHighlightHost _highlightHost = DpadHighlightHost();
 
   FocusNode? _lastFocus;
   Rect? _lastRect;
@@ -443,7 +459,24 @@ class _DpadState extends State<Dpad> with WidgetsBindingObserver {
       _restoreFocus(resumed: true);
       return true;
     }
-    return primary.focusInDirection(direction);
+    final bool moved = primary.focusInDirection(direction);
+    if (!moved) {
+      // Nothing to land on in that direction — bounce the flying highlight
+      // as edge feedback (see [DpadHighlight.nudgeOffset]).
+      _highlightHost.nudge(direction);
+    }
+    return moved;
+  }
+
+  /// Wakes the flying highlight's tracker while a scrollable that contains
+  /// the tracked item is moving, so it keeps hugging it. Scrolls elsewhere
+  /// on screen (a background carousel) must not keep the tracker awake.
+  /// The notification is never consumed.
+  bool _handleScrollNotification(ScrollNotification notification) {
+    if (_highlightHost.touches(notification.context)) {
+      _highlightHost.wake();
+    }
+    return false;
   }
 
   Map<ShortcutActivator, Intent> _buildShortcuts() {
@@ -487,6 +520,7 @@ class _DpadState extends State<Dpad> with WidgetsBindingObserver {
     return _DpadScope(
       controller: _controller,
       keySet: widget.keySet,
+      highlightHost: _highlightHost,
       child: Stack(
         textDirection: TextDirection.ltr,
         children: <Widget>[
@@ -510,9 +544,22 @@ class _DpadState extends State<Dpad> with WidgetsBindingObserver {
                 shortcuts: _buildShortcuts(),
                 child: FocusTraversalGroup(
                   policy: _policy,
-                  child: widget.child,
+                  child: NotificationListener<ScrollNotification>(
+                    onNotification: _handleScrollNotification,
+                    child: widget.child,
+                  ),
                 ),
               ),
+            ),
+          ),
+          // The flying highlight paints above every route, dialog and sheet
+          // (they all live inside the child above) and below the debug
+          // overlay, so focus inspection stays readable on top of it.
+          Positioned.fill(
+            child: DpadHighlightOverlay(
+              host: _highlightHost,
+              owner: _controller,
+              defaultHighlight: widget.highlight,
             ),
           ),
           Positioned.fill(
@@ -614,15 +661,26 @@ class _DpadScope extends InheritedWidget {
   const _DpadScope({
     required this.controller,
     required this.keySet,
+    required this.highlightHost,
     required super.child,
   });
 
   final DpadController controller;
   final DpadKeySet keySet;
+  final DpadHighlightHost highlightHost;
 
   @override
   bool updateShouldNotify(_DpadScope oldWidget) =>
-      keySet != oldWidget.keySet || controller != oldWidget.controller;
+      keySet != oldWidget.keySet ||
+      controller != oldWidget.controller ||
+      highlightHost != oldWidget.highlightHost;
+}
+
+/// The flying-highlight bridge of the closest [Dpad] root. Internal — the
+/// hook [DpadFocusable] uses to wake the highlight when its press state
+/// changes.
+DpadHighlightHost? highlightHostOf(BuildContext context) {
+  return context.getInheritedWidgetOfExactType<_DpadScope>()?.highlightHost;
 }
 
 // ---------------------------------------------------------------------------
@@ -775,7 +833,13 @@ class DpadController {
   bool previous() => focused?.previousFocus() ?? false;
 
   /// Activates the focused item — the programmatic equivalent of pressing
-  /// the remote's center button. Returns whether something handled it.
+  /// the remote's center button: it dispatches the standard activate
+  /// action, which a [DpadFocusable] turns into its `onSelect` call.
+  ///
+  /// Returns whether the action reached a handler (a [DpadFocusable]
+  /// provides one even when its `onSelect` is `null`). This dispatches the
+  /// activation only — it does not pulse the pressed visual state or fire
+  /// `onLongSelect`, which belong to the real key pipeline.
   bool select() {
     final BuildContext? context = focused?.context;
     if (context == null || !context.mounted) {
