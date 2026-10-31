@@ -2,11 +2,14 @@ import 'package:dpad/dpad.dart';
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../highlight_styles.dart';
 
 /// Settings patterns for TV:
 ///
 /// * a [DpadTheme] override styling every row in the subtree at once,
 /// * toggle rows driven by [DpadFocusable.onSelect],
+/// * a choice row cycling the app-wide focus presentation between the
+///   classic per-item effects and the flying highlight's looks,
 /// * a disabled row that navigation skips,
 /// * a volume slider consuming left/right via [DpadFocusable.onDirection],
 /// * programmatic focus with [DpadController.requestFocus],
@@ -142,6 +145,16 @@ class _SettingsSectionState extends State<SettingsSection> {
                     title: 'Focus click sounds (Dpad.onFocusChange)',
                     value: value,
                     onChanged: (v) => clickSounds.value = v,
+                  ),
+                ),
+                ValueListenableBuilder<int>(
+                  valueListenable: highlightStyle,
+                  builder: (context, value, _) => _ChoiceRow(
+                    icon: Icons.flare_rounded,
+                    title: 'Focus highlight (Dpad.highlight)',
+                    value: highlightChoices[value],
+                    onSelect: () => highlightStyle.value =
+                        (value + 1) % highlightChoices.length,
                   ),
                 ),
                 ValueListenableBuilder<bool>(
@@ -322,6 +335,54 @@ class _ToggleRow extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A settings row that cycles through named choices on select — the same
+/// chrome as [_ToggleRow] with the current choice where the switch sits.
+class _ChoiceRow extends StatelessWidget {
+  const _ChoiceRow({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.onSelect,
+  });
+
+  final IconData icon;
+  final String title;
+  final String value;
+  final VoidCallback onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: DpadFocusable(
+        onSelect: onSelect,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.white.withAlpha(10),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, size: 22),
+              const SizedBox(width: 14),
+              Expanded(child: Text(title)),
+              Text(
+                value,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+            ],
           ),
         ),
       ),

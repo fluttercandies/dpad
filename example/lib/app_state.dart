@@ -1,5 +1,12 @@
 import 'package:flutter/foundation.dart';
 
+/// The demo's focus presentation, cycled from the Settings section — an
+/// index into [highlightChoices] (see highlight_styles.dart for the
+/// catalog and its [Dpad.highlight] configurations). 0 = classic per-item
+/// effects; anything else is a flying-highlight look, and the value also
+/// picks the per-item effects that pair with it.
+final ValueNotifier<int> highlightStyle = ValueNotifier<int>(1);
+
 /// The active sidebar section (0 = For you, 1 = Library, 2 = Search,
 /// 3 = Settings). Lifted to a notifier so app-level key shortcuts can
 /// switch sections too.

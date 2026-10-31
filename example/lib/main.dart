@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'app_state.dart';
+import 'highlight_styles.dart';
 import 'pages/home_page.dart';
 import 'styles.dart';
 import 'widgets/tv_button.dart';
@@ -40,10 +41,18 @@ class DpadTvApp extends StatelessWidget {
             rtlLayout,
             dpadEnabled,
             wasdKeys,
+            highlightStyle,
           ]),
           builder: (context, _) {
             final rtl = rtlLayout.value;
             final wasd = wasdKeys.value;
+            // The focus presentation catalog from Settings: classic
+            // per-item effects, or one of the flying-highlight looks from the
+            // While the highlight is on, per-item effects scale back to
+            // just the lift (the ring/brackets carry the outline) — the
+            // pairing recommended in the README.
+            final int style = highlightStyle.value;
+            final bool flying = style != 0;
             return Directionality(
               // The RTL demo: every route mirrors under the same direction
               // and the traversal engine adapts (initial focus, line wrap,
@@ -81,10 +90,18 @@ class DpadTvApp extends StatelessWidget {
                 // App-wide styling and timing defaults for every
                 // DpadFocusable. The hold length of a long-select is
                 // a theme knob too.
-                theme: const DpadThemeData(
+                theme: DpadThemeData(
                   scrollPadding: 56,
-                  longSelectDuration: Duration(milliseconds: 650),
+                  longSelectDuration: const Duration(milliseconds: 650),
+                  effects: flying
+                      ? const <DpadEffect>[DpadScaleEffect()]
+                      : DpadThemeData.defaultEffects,
                 ),
+                // The flying highlight — one focus indicator sliding from
+                // item to item, styled per the Settings choice (the
+                // catalog lives in highlight_styles.dart); a blocked move
+                // bounces off the edge on the looks that ask for it.
+                highlight: highlightFor(style),
                 // Back behaves like a TV remote: pop whatever is open,
                 // confirm before leaving the app from the home screen.
                 onBack: _handleBack,

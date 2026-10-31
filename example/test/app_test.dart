@@ -47,6 +47,7 @@ void main() {
     rtlLayout.value = false;
     wasdKeys.value = false;
     dpadEnabled.value = true;
+    highlightStyle.value = 1;
     // Region memory is static and would otherwise leak between tests.
     DpadRegionState.clearPersistentMemory();
   });
@@ -136,7 +137,10 @@ void main() {
     expect(find.text('13'), findsOneWidget);
 
     // The focus inspector toggle paints the overlay without resetting any
-    // app state (then settles after we switch it back off).
+    // app state (then settles after we switch it back off). Three downs
+    // from Volume: click sounds, the highlight style cycler, inspector.
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
     await tester.pumpAndSettle();
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
@@ -167,6 +171,20 @@ void main() {
     // Focus restoration lands on the grid's first tile (top-left in LTR).
     final Rect start = focusedRect();
     expect(start.top, lessThan(400));
+
+    // The flying highlight follows the tiles' circular shape: the ring
+    // lands fully rounded (scaled up with the focus lift).
+    final DecoratedBox ring = tester.widget<DecoratedBox>(
+      find.byKey(DpadHighlightRingEffect.debugKey),
+    );
+    expect(
+      (ring.decoration as BoxDecoration).borderRadius!
+          .resolve(TextDirection.ltr)
+          .topLeft
+          .x,
+      closeTo(start.width * 1.08 / 2, 0.5),
+      reason: 'the ring lands as a circle on the avatar grid',
+    );
 
     // Walk right across the whole first row; the press past its end must
     // step to the first tile of the row below (line wrap).
@@ -239,7 +257,7 @@ void main() {
     // skipped): subtitles, volume, sounds, inspector, RTL.
     activeSection.value = 3;
     await tester.pumpAndSettle();
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 6; i++) {
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
       await tester.pumpAndSettle();
     }
@@ -282,9 +300,9 @@ void main() {
     activeSection.value = 3;
     await tester.pumpAndSettle();
 
-    // Autoplay autofocuses and the disabled parental row is skipped: seven
+    // Autoplay autofocuses and the disabled parental row is skipped: eight
     // downs reach the last toggle row.
-    for (int i = 0; i < 7; i++) {
+    for (int i = 0; i < 8; i++) {
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
       await tester.pumpAndSettle();
     }
@@ -320,6 +338,75 @@ void main() {
     expect(focusedRect().top, lessThan(frozen.top));
   });
 
+  testWidgets('settings: the highlight cycler swaps focus presentations',
+      (tester) async {
+    tester.view.physicalSize = const Size(1920, 1080);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const DpadTvApp());
+    await tester.pumpAndSettle();
+    activeSection.value = 3;
+    await tester.pumpAndSettle();
+
+    // The app starts with the flying ring (the demo's default look).
+    expect(find.byKey(DpadHighlightRingEffect.debugKey), findsOneWidget);
+
+    // Four downs from Autoplay reach the highlight cycler row.
+    for (int i = 0; i < 4; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pumpAndSettle();
+    }
+    expect(find.text('Flying ring'), findsOneWidget);
+
+    // Walk the whole catalog: every look paints its signature effects,
+    // as a count per key (the neon look stacks two glows). Starting from
+    // the current look 1.
+    final Map<Key, String> signatures = <Key, String>{
+      DpadHighlightRingEffect.debugKey: 'ring',
+      DpadHighlightGlowEffect.debugKey: 'glow',
+      DpadHighlightBracketsEffect.debugKey: 'brackets',
+      DpadHighlightSpotlightEffect.debugKey: 'spotlight',
+      DpadHighlightVignetteEffect.debugKey: 'vignette',
+    };
+    final List<(int, Map<Key, int>)> looks = <(int, Map<Key, int>)>[
+      (2, {DpadHighlightBracketsEffect.debugKey: 1, DpadHighlightGlowEffect.debugKey: 1, DpadHighlightRingEffect.debugKey: 0}),
+      (3, {DpadHighlightSpotlightEffect.debugKey: 1, DpadHighlightRingEffect.debugKey: 1, DpadHighlightBracketsEffect.debugKey: 0}),
+      (4, {DpadHighlightVignetteEffect.debugKey: 1, DpadHighlightRingEffect.debugKey: 1, DpadHighlightSpotlightEffect.debugKey: 0}),
+      (5, {DpadHighlightRingEffect.debugKey: 1, DpadHighlightVignetteEffect.debugKey: 0}),
+      (6, {DpadHighlightRingEffect.debugKey: 1}),
+      (7, {DpadHighlightGlowEffect.debugKey: 2, DpadHighlightRingEffect.debugKey: 1, DpadHighlightBracketsEffect.debugKey: 0}),
+      (8, {DpadHighlightRingEffect.debugKey: 1, DpadHighlightGlowEffect.debugKey: 0}),
+      (9, {DpadHighlightRingEffect.debugKey: 1, DpadHighlightGlowEffect.debugKey: 1, DpadHighlightBracketsEffect.debugKey: 0}),
+      // The chrome look paints through its own painter — no shipped
+      // effect keys, but the highlight layer itself is alive.
+      (10, {DpadHighlightRingEffect.debugKey: 0, DpadHighlightGlowEffect.debugKey: 0}),
+      (11, {DpadHighlightSpotlightEffect.debugKey: 1, DpadHighlightRingEffect.debugKey: 1, DpadHighlightBracketsEffect.debugKey: 0}),
+      (12, {DpadHighlightRingEffect.debugKey: 1, DpadHighlightGlowEffect.debugKey: 1, DpadHighlightSpotlightEffect.debugKey: 0}),
+      (13, {DpadHighlightRingEffect.debugKey: 1, DpadHighlightGlowEffect.debugKey: 1}),
+      (14, {DpadHighlightRingEffect.debugKey: 1, DpadHighlightGlowEffect.debugKey: 1}),
+      (0, {DpadHighlightRingEffect.debugKey: 0}),
+      (1, {DpadHighlightRingEffect.debugKey: 1}),
+    ];
+    for (final (int value, Map<Key, int> counts) in looks) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(highlightStyle.value, value,
+          reason: 'the cycler walks the catalog in order');
+      counts.forEach((Key key, int count) {
+        expect(find.byKey(key), findsNWidgets(count),
+            reason: 'look $value paints ${signatures[key]} x$count');
+      });
+      expect(
+        find.byKey(const ValueKey<String>('dpad.highlight')),
+        value == 0 ? findsNothing : findsOneWidget,
+        reason: value == 0
+            ? 'the classic look paints no flying highlight at all'
+            : 'look $value paints through the highlight layer',
+      );
+    }
+  });
+
   testWidgets('settings: WASD movement adds W/A/S/D to the arrows',
       (tester) async {
     tester.view.physicalSize = const Size(1920, 1080);
@@ -331,8 +418,8 @@ void main() {
     activeSection.value = 3;
     await tester.pumpAndSettle();
 
-    // Six downs reach the WASD row.
-    for (int i = 0; i < 6; i++) {
+    // Seven downs reach the WASD row.
+    for (int i = 0; i < 7; i++) {
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
       await tester.pumpAndSettle();
     }
