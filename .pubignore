@@ -8,6 +8,14 @@ build/
 .fvmrc
 .metadata
 pubspec.lock
+.flutter-plugins
+.flutter-plugins-dependencies
+coverage/
+*.log
+
+# Secrets (this file replaces .gitignore for publishing, so repeat them)
+.env
+.env.*
 
 # Working notes (not part of the package)
 dpad.md

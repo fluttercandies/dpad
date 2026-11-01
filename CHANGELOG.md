@@ -78,12 +78,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **A held select key no longer machine-guns the next focused item.** A
-  key-down whose `onSelect` moves focus (pushing a route, opening a dialog,
-  a programmatic `requestFocus`) handed the OS key repeats to an item that
-  never saw the key-down; those repeats read as fresh presses and fired
-  `onSelect` at repeat rate on whatever had focus. Repeats of any held
-  select key are now swallowed across every `DpadFocusable` until its
-  key-up.
+  key-down that moves focus (an `onSelect` pushing a route or opening a
+  dialog, a plain button's `onPressed` calling `requestFocus`) handed the
+  OS key repeats to an item that never saw the key-down; those repeats
+  read as fresh presses and fired `onSelect` at repeat rate on whatever
+  had focus. A `DpadFocusable` now swallows every select-key repeat — a
+  select fires once per press, wherever the press began.
+- **Down no longer moves sideways onto a taller neighbor.** The downward
+  direction test accepted any item whose bottom edge sat lower than the
+  source's, so a taller card in the same row (a two-line title) or a tile
+  spanning the source vertically won the press over the row below — and
+  `lineWrap` stepped back along the line instead of to the next one. Down
+  now mirrors up (and Android's `FocusFinder`): candidates must lie below
+  the source.
+- **Rapid presses no longer snap the highlight onto the previous item.** A
+  retarget mid-flight restarted from the old target's full rect, so every
+  press that outran the flight first teleported the highlight onto the
+  item it was still flying to. The new flight now takes off from the rect
+  on screen and still follows its origin through scrolls.
+- **The highlight follows a reflow while asleep.** Once landed, the
+  tracker only woke for focus, scroll and window-metrics changes, so an
+  item moved by a layout change (a row inserted above, a sibling resizing)
+  left the ring painted at its old place. The sleeping highlight now checks
+  its target after every frame the app renders — no extra frames when the
+  app is idle.
 - **The flying highlight works on Flutter 3.19–3.23 again.** Its
   measurement used sibling-to-sibling `getTransformTo`, which only exists
   on Flutter 3.24+; on older versions the first focus change crashed in
