@@ -17,3 +17,6 @@ dpad.md
 
 # Generated docs
 doc/
+
+# Session tooling
+.zcode/

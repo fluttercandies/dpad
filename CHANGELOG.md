@@ -5,6 +5,122 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-11-01
+
+### Added
+
+- **`Dpad.onBlockedMove`** — a root callback for directional presses that
+  could not move focus: dead ends (the last item of a row), and boundaries a
+  region consumed (`stop`, or a `wrap`/`lineWrap` with nowhere left to go).
+  The natural home for the edge sound, haptics or a "no more items" toast.
+  The flying highlight's edge bounce now fires for the same presses (see
+  `DpadHighlight.nudgeOffset`), so every blocked press reads the same. One
+  exception: a boundary discovered by a lazy-load scroll retry reports
+  through `DpadRegion.onEdge` only. Manual users of the policy read the
+  same signal from the new `DpadTraversalPolicy.lastBlockedEdge` getter
+  and `consumeBlockedEdge()` (the flag the root's move action drains).
+- **Semantics wiring** — every self-contained `DpadFocusable` (the default)
+  announces as a button and serves assistive activation (TalkBack's
+  double-tap, VoiceOver's default action): a tap fires `onSelect`, a
+  long-press fires `onLongSelect`, with no double-firing against the tap
+  gesture. An interactive child keeps its own semantics node and
+  activation, so the reader reaches the child's callback first — wire it
+  to the same behavior, or `ExcludeSemantics` it and use
+  `DpadFocusable.semanticLabel`. New `DpadFocusable.semanticLabel` also
+  gives image-only items a spoken name.
+- **Reduced motion** — with the platform's "remove animations" setting on
+  (`MediaQuery.disableAnimations`), highlight flights land instantly,
+  appear/fade cuts are immediate, the edge bounce stands down and
+  auto-scrolls jump instead of animating. Toggling the setting re-resolves
+  live.
+- **Centered reveals** — `DpadRevealAlignment { nearest, center }` picks how
+  a newly focused item lands along each scrollable's axis: just enough to
+  reveal it (the default), or centered theater-style. Plumbed through
+  `DpadThemeData.scrollAlignment`, `DpadFocusable.scrollAlignment`,
+  `DpadController.ensureVisible(alignment:)` and the low-level
+  `DpadScroll.ensureVisible(alignment:)`.
+- **`DpadController.select()` press pulse** — a programmatic select now
+  pulses the focused item's pressed visual state first (the same squash a
+  real key press produces, through `DpadFocusState.pressed` and the flying
+  highlight); foreign targets (plain buttons) pulse the highlight directly.
+  The beat is `DpadController.selectPulseDuration` (100ms by default).
+- **`DpadController.ensureVisible` follows the theme** — parameters left
+  `null` now take the closest `DpadThemeData`'s scroll padding, duration,
+  curve and alignment (the shared defaults are exposed as
+  `DpadScroll.defaultPadding`/`defaultDuration`/`defaultCurve`).
+- README "Shipping checklist" (banner, leanback intent, overscan, real
+  D-pad testing; EN + CN) and an "Accessibility" section.
+
+### Changed
+
+- **Engine bookkeeping is `@internal` now.** `DpadRegionState.noteFocus`,
+  `forget`, `notifyEdge` and `resolveEnter`, and
+  `DpadTraversalPolicy.invalidateRewinds`, are the wiring between the root,
+  the policy and the focusables — they stay callable from inside the package
+  but no longer present as public API. The pre-existing documented
+  members (`lastFocused`, `focusNodes`, `edgeBehaviorFor`, `clearMemory`,
+  `clearPersistentMemory`) are unaffected.
+- **`Dpad.enabled` now freezes the whole remote surface.** Besides arrow
+  keys and `move*()`, `next()`, `previous()` and `back()` stand down while
+  frozen, so a scripted caller (voice remote, automated tests) cannot step
+  focus around a playback overlay with the remote-equivalent actions;
+  `requestFocus`/`clearFocus` stay available as explicit app actions, and
+  `select()` keeps working — it is how a frozen UI unfreezes itself.
+- **`DpadController.back` respects the text-field stand-down.** While a
+  text field holds focus, `back()` does nothing and returns `false` — the
+  IME owns the keys then, exactly like the back key itself. `move()` keeps
+  acting (its docs now say so): the caret-editing gates belong to the key
+  pipeline, not to a programmatic move.
+- **Nested `Dpad` roots own their subtree's focus reporting.** Focus inside
+  a nested root no longer fires the outer root's `onFocusChange` or feeds
+  its restore memory — one root, one ownership (previously both reported).
+
+### Fixed
+
+- **A held select key no longer machine-guns the next focused item.** A
+  key-down whose `onSelect` moves focus (pushing a route, opening a dialog,
+  a programmatic `requestFocus`) handed the OS key repeats to an item that
+  never saw the key-down; those repeats read as fresh presses and fired
+  `onSelect` at repeat rate on whatever had focus. Repeats of any held
+  select key are now swallowed across every `DpadFocusable` until its
+  key-up.
+- **The flying highlight works on Flutter 3.19–3.23 again.** Its
+  measurement used sibling-to-sibling `getTransformTo`, which only exists
+  on Flutter 3.24+; on older versions the first focus change crashed in
+  debug and release. The transform now goes through the render root and
+  works on the declared minimum again.
+- **A wrap-rewind chain no longer crashes when its page dies mid-chain.**
+  The next hop after the page hosting a wrapping carousel was popped read
+  `ScrollableState.context` on a defunct state — the mounted-guard itself
+  threw. The context is captured while alive and re-checked without
+  touching the defunct state.
+- **Freezing cancels a lazy-reveal retry in its completion window too.** A
+  freeze landing in the frame between the reveal scroll completing and the
+  post-frame retry running used to slip past the cancellation check and
+  move focus while frozen.
+- **A changed `memoryKey` starts fresh.** A region rebuilt under a
+  different key (or none) used to keep the previous identity's in-state
+  memory and restore an item of the old identity on re-entry.
+- **Built-in `DpadEffect`s compare by value.** An inline
+  `DpadThemeData(effects: [DpadScaleEffect()])` used to change identity on
+  every root rebuild, invalidating the theme and rebuilding every item —
+  the same fix 3.2.0 applied to highlight effects, now for item effects
+  (`DpadCustomEffect` compares its builder by identity and documents it).
+- **The example builds on Android again.** Its manifest had never been
+  valid (no v2-embedding metadata, the launcher intent outside the
+  activity, a missing TV banner and an AppCompat theme without the
+  dependency); all fixed, the gamepad feature is optional now, and the
+  Android toolchain (Gradle 8.14, AGP 8.11, Kotlin 2.2) meets current
+  Flutter's minimums.
+- **Flights take off from the from-item's own padding.** The flight
+  origin used to be measured with the destination's configuration, so
+  consecutive items with different `DpadHighlight.padding` took off from
+  the wrong edge; the origin now resolves the source item's own config.
+- **The highlight recovers after a slow route build.** A target that stayed
+  unmeasurable past the give-up budget used to leave the highlight dark
+  until the next focus change; a slow probe now revives it within half a
+  second of the item finally laying out.
+
 ## [3.2.0] - 2026-11-01
 
 ### Added

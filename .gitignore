@@ -58,3 +58,6 @@ coverage/
 .fvm/
 # Generated docs
 doc/
+
+# Session tooling
+.zcode/
