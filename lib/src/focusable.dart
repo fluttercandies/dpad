@@ -52,6 +52,23 @@ typedef DpadDirectionCallback = bool Function(TraversalDirection direction);
 /// * [onDirection] — intercept arrows while focused, e.g. to implement a
 ///   value slider that consumes left/right.
 ///
+/// ### Accessibility
+///
+/// Every self-contained focusable (the default, [excludeChildFocus])
+/// announces as a [Semantics] button, and assistive activation works
+/// everywhere the remote does — as long as the child does not expose its
+/// own button/tap semantics: a screen reader's tap (TalkBack double-tap,
+/// VoiceOver default action) fires [onSelect] and focuses the item, a
+/// long-press fires [onLongSelect]. An interactive child (a Material
+/// button, a wrapped text field) keeps its own semantics node, label and
+/// activation, so the reader reaches the child's callback first — wire
+/// that callback to the same behavior, or wrap the child in
+/// `ExcludeSemantics` and give the item a [semanticLabel] so the wrapper
+/// is the single node. With `excludeChildFocus: false` the child's role
+/// stays authoritative and the wrapper still contributes its
+/// `onSelect`/`onLongSelect` activation when provided. Give image-only
+/// items a spoken name with [semanticLabel].
+///
 /// ### Inside a [DpadRegion]
 ///
 /// Items report themselves to their region's focus memory automatically.
@@ -83,10 +100,12 @@ class DpadFocusable extends StatefulWidget {
     this.highlight,
     this.focusNode,
     this.debugLabel,
+    this.semanticLabel,
     this.autoScroll = true,
     this.scrollPadding,
     this.scrollDuration,
     this.scrollCurve,
+    this.scrollAlignment,
     this.excludeChildFocus = true,
     this.tapToSelect = true,
   }) : assert(
@@ -151,10 +170,33 @@ class DpadFocusable extends StatefulWidget {
   final DpadHighlight? highlight;
 
   /// An external focus node to use instead of the internal one.
+  ///
+  /// The node stays owned by the caller: the widget attaches and detaches
+  /// but never disposes it. When null, an internal node is created and
+  /// disposed with the widget's state.
   final FocusNode? focusNode;
 
   /// A label shown in focus debug output.
   final String? debugLabel;
+
+  /// The accessibility label screen readers announce for this item.
+  ///
+  /// When null (the default), the semantics tree falls through to the
+  /// child's own — usually its text. Set it when the visuals alone carry
+  /// the meaning (a poster image, an icon tile):
+  ///
+  /// ```dart
+  /// DpadFocusable(
+  ///   semanticLabel: movie.title,
+  ///   onSelect: () => play(movie),
+  ///   child: PosterImage(movie),
+  /// )
+  /// ```
+  ///
+  /// The label composes with, not replaces, the child's own text — an
+  /// explicit label is announced ahead of it. Skip it when the child
+  /// already says the same thing.
+  final String? semanticLabel;
 
   /// Whether gaining focus auto-scrolls the item into view with padding for
   /// its focus effects. Defaults to `true`.
@@ -170,6 +212,11 @@ class DpadFocusable extends StatefulWidget {
 
   /// Auto-scroll animation curve. Defaults to [DpadThemeData.scrollCurve].
   final Curve? scrollCurve;
+
+  /// How the auto-scroll places this item along each scrollable's axis.
+  /// Defaults to [DpadThemeData.scrollAlignment]. See
+  /// [DpadRevealAlignment] for the two placements.
+  final DpadRevealAlignment? scrollAlignment;
 
   /// Whether descendants are removed from the focus tree so this widget is
   /// a single d-pad stop. Defaults to `true`.
@@ -193,6 +240,7 @@ class _DpadFocusableState extends State<DpadFocusable> {
   bool _selectKeyDown = false;
   bool _longSelectFired = false;
   Timer? _longSelectTimer;
+  Timer? _pressPulseTimer;
 
   @override
   void initState() {
@@ -237,6 +285,7 @@ class _DpadFocusableState extends State<DpadFocusable> {
     DpadMarks.managed[node] = true;
     DpadMarks.entry[node] = widget.entry ? true : null;
     DpadMarks.highlightStyle[node] = widget.highlight;
+    DpadMarks.pressPulse[node] = _pulsePress;
     if (widget.debugLabel != null) {
       node.debugLabel = widget.debugLabel;
     }
@@ -249,6 +298,7 @@ class _DpadFocusableState extends State<DpadFocusable> {
     DpadMarks.managed[node] = null;
     DpadMarks.entry[node] = null;
     DpadMarks.highlightStyle[node] = null;
+    DpadMarks.pressPulse[node] = null;
     DpadMarks.visualScale[node] = null;
     DpadMarks.pressed[node] = null;
   }
@@ -256,6 +306,7 @@ class _DpadFocusableState extends State<DpadFocusable> {
   @override
   void dispose() {
     _longSelectTimer?.cancel();
+    _pressPulseTimer?.cancel();
     final FocusNode? internal = _internalNode;
     final FocusNode? node = widget.focusNode ?? internal;
     if (node != null) {
@@ -286,6 +337,8 @@ class _DpadFocusableState extends State<DpadFocusable> {
   }
 
   void _startPress() {
+    // A real press takes the visuals over from a pulse still in flight.
+    _pressPulseTimer?.cancel();
     _longSelectFired = false;
     _setPressed(true);
     if (widget.onLongSelect != null) {
@@ -298,6 +351,7 @@ class _DpadFocusableState extends State<DpadFocusable> {
   }
 
   void _endPress({required bool canceled}) {
+    _pressPulseTimer?.cancel();
     _longSelectTimer?.cancel();
     _longSelectTimer = null;
     _setPressed(false);
@@ -328,6 +382,24 @@ class _DpadFocusableState extends State<DpadFocusable> {
   // Keys
   // -----------------------------------------------------------------------
 
+  /// The programmatic press pulse: pressed visuals on, then off after a
+  /// beat. Fired by [DpadController.select] so a voice-remote or scripted
+  /// activation looks like a real key press — without arming the
+  /// long-select timer (the activation already dispatched).
+  void _pulsePress() {
+    // A held select key owns the visuals until its key-up.
+    if (!mounted || !widget.enabled || _selectKeyDown) {
+      return;
+    }
+    _setPressed(true);
+    _pressPulseTimer?.cancel();
+    _pressPulseTimer = Timer(DpadController.selectPulseDuration, () {
+      if (mounted) {
+        _setPressed(false);
+      }
+    });
+  }
+
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
     // A descendant holds primary focus (`excludeChildFocus: false`
     // wrapping a text field): the keys belong to it. Claiming select here
@@ -356,11 +428,18 @@ class _DpadFocusableState extends State<DpadFocusable> {
   }
 
   KeyEventResult _handleSelectKey(KeyEvent event) {
+    // The held-key registry tracks physical key state, so a key-up clears
+    // it before any early return — even an item disabled mid-hold must
+    // release its key (no repeats can follow a key-up).
+    if (event is KeyUpEvent) {
+      DpadMarks.heldSelectKeys.remove(event.logicalKey);
+    }
     if (!widget.enabled) {
       return KeyEventResult.ignored;
     }
     if (event is KeyDownEvent) {
       _selectKeyDown = true;
+      DpadMarks.heldSelectKeys.add(event.logicalKey);
       _startPress();
       if (widget.onLongSelect == null) {
         _handleSelect();
@@ -368,8 +447,13 @@ class _DpadFocusableState extends State<DpadFocusable> {
       return KeyEventResult.handled;
     }
     if (event is KeyRepeatEvent) {
-      // Swallow repeats so a held select key never machine-guns onSelect.
-      return _selectKeyDown ? KeyEventResult.handled : KeyEventResult.ignored;
+      // Swallow repeats so a held select key never machine-guns onSelect —
+      // including repeats landing on an item that never saw the key-down,
+      // because the handler that did moved focus away (a pushed route, a
+      // dialog, a programmatic requestFocus inside onSelect).
+      return DpadMarks.heldSelectKeys.contains(event.logicalKey)
+          ? KeyEventResult.handled
+          : KeyEventResult.ignored;
     }
     if (event is KeyUpEvent) {
       if (!_selectKeyDown) {
@@ -398,11 +482,18 @@ class _DpadFocusableState extends State<DpadFocusable> {
         final DpadThemeData theme = DpadTheme.of(context);
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && _node.hasFocus) {
+            // Reduced motion (the platform's accessibility setting): jump
+            // instead of animating the reveal.
+            final bool reduceMotion =
+                MediaQuery.maybeOf(context)?.disableAnimations ?? false;
             DpadScroll.ensureVisible(
               _node,
               padding: widget.scrollPadding ?? theme.scrollPadding,
-              duration: widget.scrollDuration ?? theme.scrollDuration,
+              duration: reduceMotion
+                  ? Duration.zero
+                  : widget.scrollDuration ?? theme.scrollDuration,
               curve: widget.scrollCurve ?? theme.scrollCurve,
+              alignment: widget.scrollAlignment ?? theme.scrollAlignment,
             );
           }
         });
@@ -448,10 +539,43 @@ class _DpadFocusableState extends State<DpadFocusable> {
     }
     DpadMarks.visualScale[_node] = visualScale == 1.0 ? null : visualScale;
 
+    // Assistive activation. The semantics wrapper below owns ALL of it —
+    // the gesture detector above stands down from semantics entirely
+    // (`excludeFromSemantics`), so there is exactly one activate path
+    // regardless of how the tap/long-select/keyboard pipelines overlap.
+    // Activation also focuses the item, like the touch path's tap-down.
+    content = Semantics(
+      // Only a self-contained stop reads as a button; with a wrapped inner
+      // focus target (excludeChildFocus: false, e.g. a text field) the
+      // child's own role must stay authoritative.
+      button: widget.excludeChildFocus,
+      enabled: widget.enabled,
+      label: widget.semanticLabel,
+      onTap: widget.enabled && widget.onSelect != null
+          ? () {
+              _node.requestFocus();
+              // The same visible beat a real key press or tap produces.
+              _pulsePress();
+              _handleSelect();
+            }
+          : null,
+      onLongPress: widget.enabled && widget.onLongSelect != null
+          ? () {
+              _node.requestFocus();
+              _pulsePress();
+              _handleLongSelect();
+            }
+          : null,
+      child: content,
+    );
+
     if (widget.tapToSelect) {
       content = MouseRegion(
         cursor: widget.enabled ? SystemMouseCursors.click : MouseCursor.defer,
         child: GestureDetector(
+          // Assistive activation goes through the Semantics wrapper above,
+          // never this detector's own synthesized tap.
+          excludeFromSemantics: true,
           behavior: HitTestBehavior.opaque,
           onTapDown: widget.enabled
               ? (TapDownDetails details) {

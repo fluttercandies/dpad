@@ -8,8 +8,10 @@ import 'colors.dart';
 /// TV interfaces communicate two distinct states:
 ///
 /// * [focused] — the item is the current d-pad cursor position.
-/// * [pressed] — the select key (or a tap) is currently held down on the
-///   item. Use it for "press down" feedback, mirroring native TV platforms.
+/// * [pressed] — the select key (or a pointer) is currently held down on
+///   the item, or a programmatic `DpadController.select()` pulse is in
+///   flight. Use it for "press down" feedback, mirroring native TV
+///   platforms.
 @immutable
 class DpadFocusState {
   /// Creates an interaction state snapshot.
@@ -22,7 +24,8 @@ class DpadFocusState {
   /// Whether the item currently has d-pad focus.
   final bool focused;
 
-  /// Whether the select key or a pointer is currently held down on the item.
+  /// Whether the select key or a pointer is currently held down on the
+  /// item, or a programmatic `DpadController.select()` pulse is in flight.
   final bool pressed;
 
   @override
@@ -115,6 +118,20 @@ class DpadScaleEffect extends DpadEffect {
   /// Animation curve.
   final Curve curve;
 
+  /// Value equality, so an inline `DpadThemeData(effects: [...])` does not
+  /// invalidate the theme (and rebuild every item) on each root rebuild.
+  @override
+  bool operator ==(Object other) {
+    return other is DpadScaleEffect &&
+        other.scale == scale &&
+        other.pressedScale == pressedScale &&
+        other.duration == duration &&
+        other.curve == curve;
+  }
+
+  @override
+  int get hashCode => Object.hash(scale, pressedScale, duration, curve);
+
   @override
   Widget build(BuildContext context, DpadFocusState state, Widget child) {
     final double target = state.pressed
@@ -155,6 +172,20 @@ class DpadBorderEffect extends DpadEffect {
 
   /// Animation duration.
   final Duration duration;
+
+  /// Value equality, so an inline `DpadThemeData(effects: [...])` does not
+  /// invalidate the theme (and rebuild every item) on each root rebuild.
+  @override
+  bool operator ==(Object other) {
+    return other is DpadBorderEffect &&
+        other.color == color &&
+        other.width == width &&
+        other.borderRadius == borderRadius &&
+        other.duration == duration;
+  }
+
+  @override
+  int get hashCode => Object.hash(color, width, borderRadius, duration);
 
   @override
   Widget build(BuildContext context, DpadFocusState state, Widget child) {
@@ -202,6 +233,29 @@ class DpadGlowEffect extends DpadEffect {
 
   /// Animation duration.
   final Duration duration;
+
+  /// Value equality, so an inline `DpadThemeData(effects: [...])` does not
+  /// invalidate the theme (and rebuild every item) on each root rebuild.
+  @override
+  bool operator ==(Object other) {
+    return other is DpadGlowEffect &&
+        other.color == color &&
+        other.blurRadius == blurRadius &&
+        other.spreadRadius == spreadRadius &&
+        other.opacity == opacity &&
+        other.borderRadius == borderRadius &&
+        other.duration == duration;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+        color,
+        blurRadius,
+        spreadRadius,
+        opacity,
+        borderRadius,
+        duration,
+      );
 
   @override
   Widget build(BuildContext context, DpadFocusState state, Widget child) {
@@ -255,6 +309,27 @@ class DpadElevationEffect extends DpadEffect {
   /// Animation duration.
   final Duration duration;
 
+  /// Value equality, so an inline `DpadThemeData(effects: [...])` does not
+  /// invalidate the theme (and rebuild every item) on each root rebuild.
+  @override
+  bool operator ==(Object other) {
+    return other is DpadElevationEffect &&
+        other.elevation == elevation &&
+        other.idleElevation == idleElevation &&
+        other.shadowColor == shadowColor &&
+        other.borderRadius == borderRadius &&
+        other.duration == duration;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+        elevation,
+        idleElevation,
+        shadowColor,
+        borderRadius,
+        duration,
+      );
+
   @override
   Widget build(BuildContext context, DpadFocusState state, Widget child) {
     return AnimatedPhysicalModel(
@@ -289,6 +364,19 @@ class DpadOpacityEffect extends DpadEffect {
   /// Animation duration.
   final Duration duration;
 
+  /// Value equality, so an inline `DpadThemeData(effects: [...])` does not
+  /// invalidate the theme (and rebuild every item) on each root rebuild.
+  @override
+  bool operator ==(Object other) {
+    return other is DpadOpacityEffect &&
+        other.idleOpacity == idleOpacity &&
+        other.focusedOpacity == focusedOpacity &&
+        other.duration == duration;
+  }
+
+  @override
+  int get hashCode => Object.hash(idleOpacity, focusedOpacity, duration);
+
   @override
   Widget build(BuildContext context, DpadFocusState state, Widget child) {
     return AnimatedOpacity(
@@ -321,6 +409,20 @@ class DpadTintEffect extends DpadEffect {
   /// Animation duration.
   final Duration duration;
 
+  /// Value equality, so an inline `DpadThemeData(effects: [...])` does not
+  /// invalidate the theme (and rebuild every item) on each root rebuild.
+  @override
+  bool operator ==(Object other) {
+    return other is DpadTintEffect &&
+        other.color == color &&
+        other.opacity == opacity &&
+        other.borderRadius == borderRadius &&
+        other.duration == duration;
+  }
+
+  @override
+  int get hashCode => Object.hash(color, opacity, borderRadius, duration);
+
   @override
   Widget build(BuildContext context, DpadFocusState state, Widget child) {
     final Color resolved = color ?? defaultEffectColor(context);
@@ -339,12 +441,23 @@ class DpadTintEffect extends DpadEffect {
 
 /// Adapts an arbitrary [DpadEffectBuilder] into a [DpadEffect], for one-off
 /// effects that do not deserve their own class.
+///
+/// Equality is identity: a [builder] closure cannot be compared by value, so
+/// build the effect once (a `static final`/`const`-style field) instead of
+/// inline if [DpadThemeData] equality across rebuilds matters.
 class DpadCustomEffect extends DpadEffect {
   /// Creates an effect backed by [builder].
   const DpadCustomEffect(this.builder);
 
   /// The function that decorates the child.
   final DpadEffectBuilder builder;
+
+  @override
+  bool operator ==(Object other) =>
+      other is DpadCustomEffect && identical(other.builder, builder);
+
+  @override
+  int get hashCode => identityHashCode(builder);
 
   @override
   Widget build(BuildContext context, DpadFocusState state, Widget child) {

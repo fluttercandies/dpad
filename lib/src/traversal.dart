@@ -1,5 +1,7 @@
 import 'package:flutter/widgets.dart';
 
+import 'package:meta/meta.dart' show internal;
+
 import 'marks.dart';
 import 'region.dart';
 import 'scroll.dart';
@@ -50,6 +52,29 @@ class DpadTraversalPolicy extends ReadingOrderTraversalPolicy {
   // cross-region `interrupted()` check cannot see) still wins over the chain.
   int _rewindGeneration = 0;
 
+  /// The direction blocked by the most recent [inDirection] call, set
+  /// synchronously during it: a region boundary consumed the press
+  /// ([DpadEdgeBehavior.stop], or a `wrap`/`lineWrap` with nowhere left to
+  /// go), so focus stayed put even though the call returns `true` (the key
+  /// was meaningfully consumed).
+  ///
+  /// `null` after a call that moved focus, and after one that found nothing
+  /// at all — that case surfaces as a `false` return instead. Reset at the
+  /// start of every [inDirection] call, so it never leaks across presses.
+  /// The [Dpad] root consumes it after each directional move to fire
+  /// [Dpad.onBlockedMove] and the highlight's edge bounce for both kinds of
+  /// block; manual users of this policy can do the same via
+  /// [consumeBlockedEdge].
+  TraversalDirection? get lastBlockedEdge => _lastBlockedEdge;
+  TraversalDirection? _lastBlockedEdge;
+
+  /// Returns and clears [lastBlockedEdge].
+  TraversalDirection? consumeBlockedEdge() {
+    final TraversalDirection? edge = _lastBlockedEdge;
+    _lastBlockedEdge = null;
+    return edge;
+  }
+
   // App-wide epoch for rewind chains: bumped when navigation freezes or
   // unfreezes, and on dpad-owned programmatic focus moves. A chain captures
   // it at launch and yields once it moves — a freeze must stop chains from
@@ -58,10 +83,14 @@ class DpadTraversalPolicy extends ReadingOrderTraversalPolicy {
   static int _rewindEpoch = 0;
 
   /// Invalidates every in-flight rewind chain, app-wide.
+  @internal
   static void invalidateRewinds() => _rewindEpoch++;
 
   @override
   bool inDirection(FocusNode currentNode, TraversalDirection direction) {
+    // A fresh navigation decision: any edge block left over from the
+    // previous press (or an async retry) is stale.
+    _lastBlockedEdge = null;
     // No real focus yet: land on a sensible initial item.
     if (currentNode is FocusScopeNode) {
       final FocusNode? inner = currentNode.focusedChild;
@@ -126,6 +155,7 @@ class DpadTraversalPolicy extends ReadingOrderTraversalPolicy {
 
       switch (edge) {
         case DpadEdgeBehavior.stop:
+          _lastBlockedEdge = direction;
           region.notifyEdge(direction);
           return true;
         case DpadEdgeBehavior.wrap:
@@ -141,6 +171,7 @@ class DpadTraversalPolicy extends ReadingOrderTraversalPolicy {
           if (wrapped != null) {
             return _focusNode(wrapped);
           }
+          _lastBlockedEdge = direction;
           region.notifyEdge(direction);
           return true;
         case DpadEdgeBehavior.lineWrap:
@@ -164,6 +195,7 @@ class DpadTraversalPolicy extends ReadingOrderTraversalPolicy {
           )) {
             return true;
           }
+          _lastBlockedEdge = direction;
           region.notifyEdge(direction);
           return true;
         case DpadEdgeBehavior.leave:
@@ -211,11 +243,16 @@ class DpadTraversalPolicy extends ReadingOrderTraversalPolicy {
     // Focus nodes still get a basic reveal so they never stay clipped.
     if (DpadMarks.managed[node] != true) {
       final BuildContext? context = node.context;
+      final DpadThemeData? theme =
+          context == null ? null : DpadTheme.maybeOf(context);
       DpadScroll.ensureVisible(
         node,
-        padding: context == null
-            ? 48.0
-            : DpadTheme.maybeOf(context)?.scrollPadding ?? 48.0,
+        padding: theme?.scrollPadding ?? DpadScroll.defaultPadding,
+        duration: _reduceMotionAt(node)
+            ? Duration.zero
+            : theme?.scrollDuration ?? DpadScroll.defaultDuration,
+        curve: theme?.scrollCurve ?? DpadScroll.defaultCurve,
+        alignment: theme?.scrollAlignment ?? DpadRevealAlignment.nearest,
       );
     }
     return true;
@@ -454,6 +491,11 @@ class DpadTraversalPolicy extends ReadingOrderTraversalPolicy {
     if (scope == null) {
       return false;
     }
+    // Captured while alive: the rewind can outlive its page (pop, section
+    // switch) across the hop chain, and reading `ScrollableState.context`
+    // on a defunct state throws — checking the captured element's
+    // `mounted` does not.
+    final BuildContext scrollableContext = scrollable.context;
 
     // Launching supersedes any rewind chain still in flight (rapid wrap
     // presses): the newest chain is the only one allowed to land.
@@ -496,7 +538,7 @@ class DpadTraversalPolicy extends ReadingOrderTraversalPolicy {
       }
       // The rewind can outlive its page (pop, section switch) across its
       // hop chain; a disposed scrollable's position throws.
-      if (!scrollable.context.mounted) {
+      if (!scrollableContext.mounted) {
         return;
       }
       final ScrollPosition position = scrollable.position;
@@ -512,10 +554,20 @@ class DpadTraversalPolicy extends ReadingOrderTraversalPolicy {
         position.minScrollExtent,
         position.maxScrollExtent,
       );
+      // Reduced motion jumps (animateTo requires a positive duration), and
+      // the hop chain continues once the freshly scrolled content is built.
+      if (_reduceMotionAt(node)) {
+        position.jumpTo(offset);
+        _postFrame(() {
+          land(); // Re-anchor on the extreme of what is built.
+          _postFrame(() => hop(remaining - 1));
+        });
+        return;
+      }
       position
           .animateTo(
         offset,
-        duration: const Duration(milliseconds: 160),
+        duration: _kScrollStep,
         curve: Curves.easeOutCubic,
       )
           .then((_) {
@@ -537,6 +589,20 @@ class DpadTraversalPolicy extends ReadingOrderTraversalPolicy {
       ..addPostFrameCallback((_) => callback())
       ..scheduleFrame();
   }
+
+  /// The platform's reduced-motion request at [node] — the engine's own
+  /// scroll steps (lazy-load retries, wrap rewinds) jump instead of
+  /// animating under it, like every other motion in the package.
+  static bool _reduceMotionAt(FocusNode node) {
+    final BuildContext? context = node.context;
+    if (context == null || !context.mounted) {
+      return false;
+    }
+    return MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+  }
+
+  /// The per-step duration of the engine's scroll animations.
+  static const Duration _kScrollStep = Duration(milliseconds: 160);
 
   /// The in-region item at the far end behind the line along [direction] —
   /// the true wrap target once the rewind has built it: the leftmost for
@@ -737,21 +803,45 @@ class DpadTraversalPolicy extends ReadingOrderTraversalPolicy {
       return false;
     }
 
+    // Reduced motion jumps (animateTo requires a positive duration) and
+    // the retry runs once the newly scrolled content is built.
+    if (_reduceMotionAt(node)) {
+      position.jumpTo(offset);
+      _postFrame(() {
+        if (epoch != _rewindEpoch ||
+            !node.hasPrimaryFocus ||
+            node.context == null) {
+          return;
+        }
+        inDirection(node, direction);
+      });
+      return true;
+    }
+
     position
         .animateTo(
       offset,
-      duration: const Duration(milliseconds: 160),
+      duration: _kScrollStep,
       curve: Curves.easeOutCubic,
     )
         .then((_) {
-      // Retry once the newly built content is in place.
+      // Retry once the newly built content is in place. The epoch is
+      // re-checked at run time too: a freeze landing in the one frame
+      // between the animation completing and the post-frame callback
+      // running must still cancel the retry, exactly like one landing
+      // mid-animation.
       if (epoch != _rewindEpoch ||
           !node.hasPrimaryFocus ||
           node.context == null) {
         return;
       }
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (node.hasPrimaryFocus && node.context != null) {
+      // Through _postFrame like every other deferred hop: a raw callback
+      // can park frame-starved if the .then lands after the last
+      // scheduled frame.
+      _postFrame(() {
+        if (epoch == _rewindEpoch &&
+            node.hasPrimaryFocus &&
+            node.context != null) {
           inDirection(node, direction);
         }
       });

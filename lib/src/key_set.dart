@@ -24,6 +24,10 @@ import 'package:flutter/widgets.dart';
 @immutable
 class DpadKeySet {
   /// Creates a key set. Every parameter falls back to the platform defaults.
+  ///
+  /// The lists are stored as given: treat them (and the set) as immutable —
+  /// mutating them after construction changes behavior in place and breaks
+  /// `==`, which reads the lists' contents.
   const DpadKeySet({
     this.up = defaultUp,
     this.down = defaultDown,

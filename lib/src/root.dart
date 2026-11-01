@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -28,9 +29,10 @@ import 'traversal.dart';
 /// [Dpad] provides:
 ///
 /// * **TV-correct directional navigation** for the whole subtree, via
-///   [DpadTraversalPolicy]. Works with arrow keys, remote d-pads and game
-///   controllers on every platform (including web, where Flutter does not
-///   map arrows to focus by default).
+///   [DpadTraversalPolicy]. Handles arrow keys and remote d-pads wherever
+///   Flutter delivers them as key events (including web, where Flutter does
+///   not map arrows to focus by default); game controllers need a key or
+///   gamepad bridge, see the README's remote interactions section.
 /// * **Remote key semantics** — back and menu callbacks, plus app-level
 ///   [shortcuts]. All of them automatically stand down while a text field
 ///   is being edited, so typing is never hijacked.
@@ -56,6 +58,7 @@ class Dpad extends StatefulWidget {
     this.onBack,
     this.onMenu,
     this.onFocusChange,
+    this.onBlockedMove,
     this.shortcuts = const <LogicalKeyboardKey, VoidCallback>{},
     this.restoreFocus = true,
     this.debugOverlay = false,
@@ -68,12 +71,18 @@ class Dpad extends StatefulWidget {
   /// Freezes remote navigation — the playback-overlay pattern: while
   /// `false`, arrow keys are consumed without moving focus (so nothing
   /// behind [Dpad] can steal them either), back/menu keys and [shortcuts]
-  /// stand down, and [DpadController.move] calls do nothing. While a text
-  /// field holds focus the arrows fall through to normal caret editing —
-  /// which consumes them too, so focus still never moves. Select keys
-  /// keep working on the focused [DpadFocusable], which is what lets a
-  /// frozen UI (an on-screen toggle, a "press OK to resume" hint) turn
-  /// navigation back on.
+  /// stand down, and the programmatic equivalents —
+  /// [DpadController.move], [DpadController.next],
+  /// [DpadController.previous], [DpadController.back] — do nothing, so a
+  /// scripted caller cannot step focus around the freeze with the
+  /// remote-equivalent actions. The freeze covers navigation and the
+  /// remote's meta keys, not the focused item's own key semantics
+  /// ([DpadFocusable.onDirection], select/long-select keep running — that
+  /// is the documented unfreeze path), and explicit app actions
+  /// ([DpadController.requestFocus], [DpadController.clearFocus]) remain
+  /// available. While a text field holds focus the arrows fall through to
+  /// normal caret editing — which consumes them too, so focus still never
+  /// moves.
   final bool enabled;
 
   /// The remote-key mapping. See [DpadKeySet].
@@ -109,7 +118,8 @@ class Dpad extends StatefulWidget {
   final VoidCallback? onMenu;
 
   /// Called on every focus change with the newly focused node (or `null`
-  /// when nothing real is focused).
+  /// when nothing real is focused). Nodes inside a nested [Dpad] report to
+  /// that root only — each root owns its subtree's focus reporting.
   ///
   /// The natural place for the app-wide focus "tick" sound, haptics or
   /// analytics:
@@ -123,9 +133,37 @@ class Dpad extends StatefulWidget {
   /// ```
   final ValueChanged<FocusNode?>? onFocusChange;
 
+  /// Called when a directional move is blocked — focus stayed put because
+  /// there is nothing to land on (the last item of a row, the bottom of a
+  /// list), or a region boundary consumed the press
+  /// ([DpadEdgeBehavior.stop], or a `wrap`/`lineWrap` with nowhere left to
+  /// go).
+  ///
+  /// The natural place for the "edge reached" sound, haptics or a toast:
+  ///
+  /// ```dart
+  /// Dpad.wrap(
+  ///   onBlockedMove: (direction) => audio.playEdgeTick(),
+  /// )
+  /// ```
+  ///
+  /// The same presses also bounce the flying highlight (see
+  /// [DpadHighlight.nudgeOffset]), and boundaries a `DpadRegion` handles
+  /// itself keep reporting through `DpadRegion.onEdge` — if you wire
+  /// feedback at both layers, these presses reach both, so pick one layer
+  /// for the sound or haptic. (Blocked outcomes discovered by a lazy-load
+  /// scroll retry report through `DpadRegion.onEdge` only.) Not called
+  /// while [enabled] is `false` (a frozen UI swallows keys silently) or
+  /// for a direction key consumed by something closer to the focus (e.g.
+  /// [DpadFocusable.onDirection]).
+  final ValueChanged<TraversalDirection>? onBlockedMove;
+
   /// App-level key shortcuts, e.g. a search key or color buttons.
   ///
-  /// Suspended automatically while a text field is focused.
+  /// Suspended automatically while a text field is focused. The map is
+  /// stored as given — treat it as immutable; mutating it after handing it
+  /// over (or keying it to a rebuilt map literal) changes nothing until the
+  /// instance differs from the memoized one.
   final Map<LogicalKeyboardKey, VoidCallback> shortcuts;
 
   /// Whether the d-pad system keeps focus alive on its own. Defaults to
@@ -188,6 +226,7 @@ class Dpad extends StatefulWidget {
     bool Function()? onBack,
     VoidCallback? onMenu,
     ValueChanged<FocusNode?>? onFocusChange,
+    ValueChanged<TraversalDirection>? onBlockedMove,
     Map<LogicalKeyboardKey, VoidCallback> shortcuts =
         const <LogicalKeyboardKey, VoidCallback>{},
     bool restoreFocus = true,
@@ -202,6 +241,7 @@ class Dpad extends StatefulWidget {
         onBack: onBack,
         onMenu: onMenu,
         onFocusChange: onFocusChange,
+        onBlockedMove: onBlockedMove,
         shortcuts: shortcuts,
         restoreFocus: restoreFocus,
         debugOverlay: debugOverlay,
@@ -221,6 +261,11 @@ class _DpadState extends State<Dpad> with WidgetsBindingObserver {
 
   FocusNode? _lastFocus;
   Rect? _lastRect;
+
+  /// The node currently holding the foreign press pulse (see
+  /// [DpadController.select]) — released by this timer.
+  FocusNode? _foreignPressNode;
+  Timer? _foreignPressTimer;
 
   /// `null` when no restore is pending; otherwise the queued restore's
   /// `resumed` flag, OR-accumulated across schedules.
@@ -249,6 +294,14 @@ class _DpadState extends State<Dpad> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _foreignPressTimer?.cancel();
+    // A pulse still in flight must not leave its node painted pressed by
+    // whichever overlay outlives this root.
+    final FocusNode? held = _foreignPressNode;
+    if (held != null) {
+      DpadMarks.pressed[held] = false;
+    }
+    _foreignPressNode = null;
     FocusManager.instance.removeListener(_handleGlobalFocusChange);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -261,6 +314,15 @@ class _DpadState extends State<Dpad> with WidgetsBindingObserver {
   void _handleGlobalFocusChange() {
     final FocusNode? primary = FocusManager.instance.primaryFocus;
     if (primary != null && primary is! FocusScopeNode) {
+      final BuildContext? primaryContext = primary.context;
+      if (primaryContext != null &&
+          primaryContext.mounted &&
+          !identical(Dpad.maybeOf(primaryContext), _controller)) {
+        // Focus moved into a nested Dpad root — that root owns reporting,
+        // restoration and memory for its subtree. Keep the last own-node
+        // memory for when focus comes back out.
+        return;
+      }
       _lastFocus = primary;
       _lastRect = DpadMarks.rectOf(primary) ?? _lastRect;
       widget.onFocusChange?.call(primary);
@@ -450,7 +512,9 @@ class _DpadState extends State<Dpad> with WidgetsBindingObserver {
   bool _move(TraversalDirection direction) {
     // Frozen: the action stays enabled so the key press is still consumed
     // (the framework's default arrow shortcuts must not move focus), but a
-    // programmatic caller learns the truth — nothing moved.
+    // programmatic caller learns the truth — nothing moved. A focused text
+    // field is deliberately NOT blocked here: the caret-edge escape routes
+    // the key through this very action while the field is focused.
     if (!widget.enabled) {
       return false;
     }
@@ -459,13 +523,51 @@ class _DpadState extends State<Dpad> with WidgetsBindingObserver {
       _restoreFocus(resumed: true);
       return true;
     }
+    // The move runs on the focused node's nearest traversal group's
+    // policy — a DpadRegion installs its own instance of ours, and the
+    // edge flag lands there.
+    final FocusTraversalPolicy moverPolicy =
+        FocusTraversalGroup.of(primary.context!);
     final bool moved = primary.focusInDirection(direction);
-    if (!moved) {
-      // Nothing to land on in that direction — bounce the flying highlight
-      // as edge feedback (see [DpadHighlight.nudgeOffset]).
+    // Blocked is either a dead end the search could see (`moved == false`)
+    // or a region boundary that consumed the press (`stop`, a failed `wrap`
+    // or `lineWrap` — which returns `true` because the key was used). One
+    // bounce and one notification cover both, so every blocked press reads
+    // the same.
+    final TraversalDirection? blocked = moverPolicy is DpadTraversalPolicy
+        ? moverPolicy.consumeBlockedEdge()
+        : null;
+    if (!moved || blocked != null) {
+      // Bounce the flying highlight as edge feedback (see
+      // [DpadHighlight.nudgeOffset]).
       _highlightHost.nudge(direction);
+      widget.onBlockedMove?.call(direction);
     }
     return moved;
+  }
+
+  /// Presses the flying highlight's pressed state for a target nobody else
+  /// can pulse — [DpadController.select] on a plain button. The focusable
+  /// path pulses through `DpadMarks.pressPulse` instead.
+  void _pulseForeignPress(FocusNode item) {
+    // Release the previous pulse's node before re-arming — two rapid
+    // selects on different foreign targets must not strand the first mark.
+    final FocusNode? previous = _foreignPressNode;
+    if (previous != null && !identical(previous, item)) {
+      DpadMarks.pressed[previous] = false;
+    }
+    DpadMarks.pressed[item] = true;
+    _foreignPressNode = item;
+    _highlightHost.wake();
+    _foreignPressTimer?.cancel();
+    _foreignPressTimer = Timer(DpadController.selectPulseDuration, () {
+      final FocusNode? held = _foreignPressNode;
+      if (held != null) {
+        DpadMarks.pressed[held] = false;
+        _foreignPressNode = null;
+        _highlightHost.wake();
+      }
+    });
   }
 
   /// Wakes the flying highlight's tracker while a scrollable that contains
@@ -479,8 +581,35 @@ class _DpadState extends State<Dpad> with WidgetsBindingObserver {
     return false;
   }
 
+  /// Memoized inputs of [_buildShortcuts] — a root rebuild (a settings
+  /// toggle inside the documented `AnimatedBuilder` + `Dpad` pattern) must
+  /// not hand `Shortcuts` a fresh map to re-resolve when neither the key
+  /// set nor the app shortcuts changed.
+  Map<ShortcutActivator, Intent> _shortcutMap = <ShortcutActivator, Intent>{};
+  DpadKeySet? _shortcutKeySet;
+  Map<LogicalKeyboardKey, VoidCallback>? _shortcutExtras;
+
+  /// The action registry is stateless beyond `this`; built once.
+  late final Map<Type, Action<Intent>> _actions = <Type, Action<Intent>>{
+    _DpadDirectionalIntent: _DpadDirectionalAction(this),
+    _DpadBackIntent: _DpadBackAction(this),
+    _DpadMenuIntent: _DpadMenuAction(this),
+    _DpadCallbackIntent: _DpadCallbackAction(this),
+  };
+
   Map<ShortcutActivator, Intent> _buildShortcuts() {
+    // [DpadKeySet] compares by value, so a rebuilt-but-equal key set (a new
+    // instance from an AnimatedBuilder) keeps the memoized map; the extras
+    // map compares by content (callbacks are identity-compared inside),
+    // so equal-but-fresh literals keep the memo too.
+    if (_shortcutKeySet == widget.keySet &&
+        mapEquals(_shortcutExtras, widget.shortcuts)) {
+      return _shortcutMap;
+    }
+    _shortcutKeySet = widget.keySet;
+    _shortcutExtras = widget.shortcuts;
     final Map<ShortcutActivator, Intent> map = <ShortcutActivator, Intent>{};
+    _shortcutMap = map;
     void mapDirection(List<LogicalKeyboardKey> keys, TraversalDirection d) {
       for (final LogicalKeyboardKey key in keys) {
         map[SingleActivator(key)] = _DpadDirectionalIntent(
@@ -527,12 +656,7 @@ class _DpadState extends State<Dpad> with WidgetsBindingObserver {
           DpadTheme(
             data: widget.theme ?? const DpadThemeData(),
             child: Actions(
-              actions: <Type, Action<Intent>>{
-                _DpadDirectionalIntent: _DpadDirectionalAction(this),
-                _DpadBackIntent: _DpadBackAction(this),
-                _DpadMenuIntent: _DpadMenuAction(this),
-                _DpadCallbackIntent: _DpadCallbackAction(this),
-              },
+              actions: _actions,
               child: Shortcuts(
                 debugLabel: 'Dpad',
                 // Always installed. While frozen, the directional actions
@@ -619,6 +743,9 @@ class _DpadDebugOverlayState extends State<_DpadDebugOverlay>
       child: Stack(
         textDirection: TextDirection.ltr,
         children: <Widget>[
+          // Global-space rect, correct for the standard fullscreen
+          // install; a positioned nested Dpad would need a local-space
+          // walk like the highlight's.
           Positioned.fromRect(
             rect: rect.inflate(2),
             child: DecoratedBox(
@@ -800,6 +927,11 @@ class _DpadCallbackAction extends Action<_DpadCallbackIntent> {
 class DpadController {
   DpadController._(this._state);
 
+  /// How long [select]'s press pulse holds the pressed state — the same
+  /// beat for every pulse path (the focusable pipeline and foreign targets
+  /// alike).
+  static const Duration selectPulseDuration = Duration(milliseconds: 100);
+
   final _DpadState _state;
 
   /// The node that currently holds focus, or `null` when nothing real is
@@ -809,9 +941,12 @@ class DpadController {
     return primary is FocusScopeNode ? null : primary;
   }
 
-  /// Moves focus one step in [direction], exactly like a remote key press.
-  /// Returns whether focus moved (or the press was meaningfully consumed);
-  /// `false` while [Dpad.enabled] is `false`.
+  /// Moves focus one step in [direction], like a remote key press, except
+  /// that the caret-editing gates belong to the key pipeline: while a text
+  /// field holds focus the real arrows edit text (and escape at the caret
+  /// edges), while this call moves directly. Returns whether focus moved
+  /// (or the press was meaningfully consumed); `false` while
+  /// [Dpad.enabled] is `false`.
   bool move(TraversalDirection direction) => _state._move(direction);
 
   /// Moves focus up. Equivalent to `move(TraversalDirection.up)`.
@@ -827,33 +962,60 @@ class DpadController {
   bool moveRight() => move(TraversalDirection.right);
 
   /// Moves focus to the next item in reading order (like Tab).
-  bool next() => focused?.nextFocus() ?? false;
+  ///
+  /// Returns whether focus moved; `false` while [Dpad.enabled] is `false`,
+  /// exactly like the equivalent key press.
+  bool next() => _state.widget.enabled && (focused?.nextFocus() ?? false);
 
   /// Moves focus to the previous item in reading order (like Shift+Tab).
-  bool previous() => focused?.previousFocus() ?? false;
+  ///
+  /// Returns whether focus moved; `false` while [Dpad.enabled] is `false`,
+  /// exactly like the equivalent key press.
+  bool previous() =>
+      _state.widget.enabled && (focused?.previousFocus() ?? false);
 
   /// Activates the focused item — the programmatic equivalent of pressing
-  /// the remote's center button: it dispatches the standard activate
-  /// action, which a [DpadFocusable] turns into its `onSelect` call.
+  /// the remote's center button (a voice remote's "OK", a scripted test):
+  /// it pulses the focused item's pressed visual state first — the same
+  /// squash a real key press produces, through [DpadFocusState.pressed] and
+  /// the flying highlight — then dispatches the standard activate action,
+  /// which a [DpadFocusable] turns into its `onSelect` call. On targets
+  /// outside the focusable pipeline (a plain button) only the flying
+  /// highlight pulses.
   ///
   /// Returns whether the action reached a handler (a [DpadFocusable]
   /// provides one even when its `onSelect` is `null`). This dispatches the
-  /// activation only — it does not pulse the pressed visual state or fire
-  /// `onLongSelect`, which belong to the real key pipeline.
+  /// activation only — it does not fire `onLongSelect`, which belongs to
+  /// the real key pipeline.
   bool select() {
-    final BuildContext? context = focused?.context;
-    if (context == null || !context.mounted) {
+    final FocusNode? node = focused;
+    final BuildContext? context = node?.context;
+    if (node == null || context == null || !context.mounted) {
       return false;
     }
     if (Actions.maybeFind<ActivateIntent>(context) == null) {
       return false;
+    }
+    final FocusNode item = DpadMarks.itemOf(node) ?? node;
+    final VoidCallback? pulse = DpadMarks.pressPulse[item];
+    if (pulse != null) {
+      pulse();
+    } else {
+      // A target the focusable pipeline cannot serve (a plain button):
+      // still give the flying highlight its beat.
+      _state._pulseForeignPress(item);
     }
     Actions.maybeInvoke(context, const ActivateIntent());
     return true;
   }
 
   /// Runs the [Dpad.onBack] handler. Returns whether it consumed the event.
-  bool back() => _state.widget.onBack?.call() ?? false;
+  ///
+  /// Does nothing while [Dpad.enabled] is `false` or a text field holds
+  /// focus (the IME owns the keys then), returning `false` — exactly like
+  /// the back key.
+  bool back() =>
+      _state._keysActive && (_state.widget.onBack?.call() ?? false);
 
   /// Focuses [node] if it can currently receive focus.
   bool requestFocus(FocusNode node) {
@@ -877,21 +1039,48 @@ class DpadController {
   }
 
   /// Scrolls [node] (or the currently focused node) fully into view,
-  /// keeping room for focus effects.
+  /// keeping room for focus effects. [alignment] picks the placement along
+  /// each scrollable's axis — see [DpadRevealAlignment].
+  ///
+  /// Parameters left `null` follow the [DpadThemeData] governing the target
+  /// (scroll padding, duration, curve and alignment) — the theme wrapping
+  /// it, else the [Dpad] root's — so a themed app scrolls the same through
+  /// the controller as it does through key navigation. Like the package's
+  /// own auto-scrolls, the reveal jumps instead of animating while the
+  /// platform requests reduced motion (a [DpadScroll.ensureVisible] call
+  /// with an explicit duration always animates that duration).
   void ensureVisible({
     FocusNode? node,
-    double padding = 48.0,
-    Duration duration = const Duration(milliseconds: 220),
-    Curve curve = Curves.easeOutCubic,
+    double? padding,
+    Duration? duration,
+    Curve? curve,
+    DpadRevealAlignment? alignment,
   }) {
     final FocusNode? target = node ?? focused;
-    if (target != null) {
-      DpadScroll.ensureVisible(
-        target,
-        padding: padding,
-        duration: duration,
-        curve: curve,
-      );
+    if (target == null) {
+      return;
     }
+    final BuildContext? targetContext = target.context;
+    // Resolve from the target, not the root: the theme that governs an
+    // item is the one wrapping it (the root's own theme installs *below*
+    // this widget). No build dependency — this runs from event handlers.
+    final DpadThemeData? scoped = targetContext != null &&
+            targetContext.mounted
+        ? targetContext.getInheritedWidgetOfExactType<DpadTheme>()?.data
+        : null;
+    final DpadThemeData theme =
+        scoped ?? _state.widget.theme ?? const DpadThemeData();
+    final bool reduceMotion = targetContext != null &&
+        targetContext.mounted &&
+        (MediaQuery.maybeOf(targetContext)?.disableAnimations ?? false);
+    DpadScroll.ensureVisible(
+      target,
+      padding: padding ?? theme.scrollPadding,
+      duration: reduceMotion
+          ? Duration.zero
+          : duration ?? theme.scrollDuration,
+      curve: curve ?? theme.scrollCurve,
+      alignment: alignment ?? theme.scrollAlignment,
+    );
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:async' as async;
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -8,6 +9,7 @@ import 'package:flutter/scheduler.dart';
 import 'colors.dart';
 import 'marks.dart';
 import 'root.dart';
+import 'scroll.dart';
 
 /// The configuration of the flying highlight — the single focus indicator
 /// that slides from item to item as the d-pad moves, the way mainstream TV
@@ -39,7 +41,7 @@ class DpadHighlight {
   /// Creates a flying highlight configuration.
   const DpadHighlight({
     this.effects = defaultEffects,
-    this.duration = const Duration(milliseconds: 220),
+    this.duration = DpadScroll.defaultDuration,
     this.curve = Curves.easeOutCubic,
     this.padding = EdgeInsets.zero,
     this.appearDuration = const Duration(milliseconds: 150),
@@ -76,7 +78,9 @@ class DpadHighlight {
   /// What the highlight paints, first effect painted first (below the rest).
   ///
   /// Combine freely — a ring over a vignette, brackets with a glow — or
-  /// subclass [DpadHighlightEffect] for anything else.
+  /// subclass [DpadHighlightEffect] for anything else. The list is stored
+  /// as given — treat it as immutable; mutating it after construction
+  /// changes behavior in place and breaks `==`.
   final List<DpadHighlightEffect> effects;
 
   /// Flight duration. The default matches [DpadThemeData.scrollDuration] so
@@ -95,16 +99,20 @@ class DpadHighlight {
   /// lost (no flight in either case — the tvOS behavior).
   final Duration appearDuration;
 
-  /// How far the highlight bounces when navigation hits an edge (the last
-  /// item of a row, the bottom of a list) — directional feedback in the
-  /// direction of the blocked move. A non-positive value (the default
-  /// `0.0`) disables the bounce.
+  /// How far the highlight bounces when navigation is blocked — the last
+  /// item of a row, the bottom of a list, a region `stop` edge — directional
+  /// feedback in the direction of the blocked move. A non-positive value
+  /// (the default `0.0`) disables the bounce.
   ///
-  /// The bounce is for moves no boundary consumed — a bare layout's dead
-  /// end, or a `leave` edge with nothing beyond it. Boundaries a
-  /// `DpadRegion` handles itself (`stop`, `wrap`, `lineWrap`) consume the
-  /// key and report through `DpadRegion.onEdge` instead; pair the two for
-  /// per-region feedback.
+  /// Every blocked press bounces: dead ends with nothing to land on, and
+  /// boundaries a `DpadRegion` consumed (`stop`, or a `wrap`/`lineWrap`
+  /// with nowhere left to go — those also report through
+  /// `DpadRegion.onEdge`). One exception: a boundary discovered by an
+  /// engine scroll retry (lazy content that revealed nothing new) only
+  /// reports through `DpadRegion.onEdge` — the press already returned, so
+  /// there is nothing to bounce. Pair with [Dpad.onBlockedMove] for the
+  /// matching sound or haptic. The bounce stands down while the platform
+  /// requests reduced motion (`MediaQuery.disableAnimations`).
   final double nudgeOffset;
 
   /// Creates a copy of this configuration with the given fields replaced.
@@ -149,7 +157,7 @@ class DpadHighlight {
         appearDuration,
         nudgeOffset,
       );
-  }
+}
 
 /// Provides a [DpadHighlight] to a subtree — the page- or section-level
 /// placement point of the flying highlight's style.
@@ -194,7 +202,9 @@ class DpadHighlightTheme extends InheritedWidget {
 }
 
 /// The live state of the flying highlight, handed to [DpadHighlightEffect]s
-/// on every frame while the highlight is on screen.
+/// on every animation and tracking frame, and on every state change — the
+/// engine stops rebuilding once the target is stationary, so an effect that
+/// needs continuous motion owns its controller.
 @immutable
 class DpadHighlightState {
   /// Creates a snapshot of the flying highlight.
@@ -245,7 +255,8 @@ class DpadHighlightState {
   final bool visible;
 
   /// Whether the select key (or a pointer) is currently held down on the
-  /// focused item.
+  /// focused item — or a programmatic `DpadController.select()` pulse is
+  /// in flight.
   final bool pressed;
 
   /// Places [child] at [rect] — the standard wrapper for effects that
@@ -259,8 +270,10 @@ class DpadHighlightState {
 ///
 /// Built-in effects cover the common TV and game looks; subclass or use
 /// [DpadHighlightCustomEffect] for anything else. Effects receive the live
-/// [DpadHighlightState] every frame, so custom presentations can react to
-/// flights and presses as they happen.
+/// [DpadHighlightState] on every animation and tracking frame (flights,
+/// fades, bounce and press changes) — the rebuilds stop once the target is
+/// stationary, so custom presentations reacting to those events stay
+/// cheap.
 abstract class DpadHighlightEffect {
   /// Const constructor for subclasses.
   const DpadHighlightEffect();
@@ -338,7 +351,10 @@ class DpadHighlightRingEffect extends DpadHighlightEffect {
       key: debugKey,
       decoration: BoxDecoration(
         borderRadius: _corners(state, borderRadius, followShape),
-        border: Border.all(color: color ?? defaultEffectColor(context), width: width),
+        border: Border.all(
+          color: color ?? defaultEffectColor(context),
+          width: width,
+        ),
       ),
     );
     final double scale = state.pressed ? (pressedScale ?? 1.0) : 1.0;
@@ -969,8 +985,20 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
   /// The bounce offset currently applied to the painted rect.
   Offset _nudgeVector = Offset.zero;
 
+  /// The platform's reduced-motion request (`MediaQuery.disableAnimations`)
+  /// — flights land instantly, appear/fade cuts are immediate and the edge
+  /// bounce stands down, while the geometry still follows the target.
+  bool _reduceMotion = false;
+
   int _stableFrames = 0;
   int _unmeasuredFrames = 0;
+
+  /// Slow probe for a target abandoned by the unmeasured budget — see
+  /// [_armGiveUpRetry].
+  async.Timer? _giveUpRetry;
+
+  /// How often the give-up probe re-checks an abandoned target.
+  static const Duration _giveUpRetryDelay = Duration(milliseconds: 500);
 
   @override
   void initState() {
@@ -1000,6 +1028,7 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
 
   @override
   void dispose() {
+    _giveUpRetry?.cancel();
     _ticker.dispose();
     widget.host._detach(this);
     FocusManager.instance.removeListener(_handleFocusChange);
@@ -1011,6 +1040,20 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final bool reduce = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (reduce == _reduceMotion) {
+      return;
+    }
+    _reduceMotion = reduce;
+    // Re-resolve so a landed (or mid-flight) target adopts the new
+    // durations — the same-look guard does not apply, the normalized
+    // configuration differs.
+    _applyTarget();
+  }
+
+  @override
   void didChangeMetrics() {
     _wake();
   }
@@ -1019,20 +1062,27 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
   // Focus tracking
   // ---------------------------------------------------------------------
 
+  /// The node with primary focus when it belongs to this root, `null`
+  /// otherwise (no focus, a scope, or a foreign node inside a nested Dpad).
+  FocusNode? _ownedPrimary() {
+    final FocusNode? node = FocusManager.instance.primaryFocus;
+    if (node == null || node is FocusScopeNode) {
+      return null;
+    }
+    final BuildContext? nodeContext = node.context;
+    if (nodeContext == null ||
+        !nodeContext.mounted ||
+        Dpad.maybeOf(nodeContext) != widget.owner) {
+      return null;
+    }
+    return node;
+  }
+
   void _handleFocusChange() {
-    FocusNode? node = FocusManager.instance.primaryFocus;
-    if (node is FocusScopeNode) {
-      node = null;
-    }
-    if (node != null) {
-      final BuildContext? nodeContext = node.context;
-      // Foreign nodes (inside a nested Dpad) belong to that root's overlay.
-      if (nodeContext == null ||
-          !nodeContext.mounted ||
-          Dpad.maybeOf(nodeContext) != widget.owner) {
-        node = null;
-      }
-    }
+    // Any focus activity supersedes a pending give-up probe.
+    _giveUpRetry?.cancel();
+    _giveUpRetry = null;
+    final FocusNode? node = _ownedPrimary();
     final FocusNode? previous = _target;
     _target = node;
     // A flight starts from wherever the highlight was last anchored —
@@ -1054,18 +1104,28 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
     final FocusNode? item = DpadMarks.itemOf(node);
     final DpadHighlight? itemStyle =
         item == null ? null : DpadMarks.highlightStyle[item];
+    final DpadHighlight? resolved;
     if (itemStyle != null) {
-      return itemStyle;
-    }
-    final BuildContext? nodeContext = node.context;
-    if (nodeContext != null && nodeContext.mounted) {
-      final DpadHighlightTheme? scope =
-          nodeContext.getInheritedWidgetOfExactType<DpadHighlightTheme>();
-      if (scope != null) {
-        return scope.data;
+      resolved = itemStyle;
+    } else {
+      final BuildContext? nodeContext = node.context;
+      DpadHighlightTheme? scope;
+      if (nodeContext != null && nodeContext.mounted) {
+        scope =
+            nodeContext.getInheritedWidgetOfExactType<DpadHighlightTheme>();
       }
+      resolved = scope?.data ?? widget.defaultHighlight;
     }
-    return widget.defaultHighlight;
+    // Reduced motion: land flights and cut instantly (the edge bounce
+    // stands down separately, in [_nudge]). `copyWith` keeps the effects
+    // list instance, so custom-effect identity still holds.
+    if (resolved == null || !_reduceMotion) {
+      return resolved;
+    }
+    return resolved.copyWith(
+      duration: Duration.zero,
+      appearDuration: Duration.zero,
+    );
   }
 
   void _applyTarget({FocusNode? fromNode}) {
@@ -1214,10 +1274,14 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
         !overlayObject.hasSize) {
       return null;
     }
-    // One transform chain walk (node → overlay) — two global round-trips
-    // would walk the chain to the root and invert the matrix twice.
+    // Node → root → overlay. A direct sibling walk
+    // (`nodeObject.getTransformTo(overlayObject)`) only works on Flutter
+    // 3.24+ — before that the API asserts unless the target is an
+    // ancestor. Going through the root twice keeps the declared
+    // Flutter 3.19 floor honest for the cost of one extra chain walk.
+    final Matrix4 toOverlay = overlayObject.getTransformTo(null)..invert();
     final Rect local = MatrixUtils.transformRect(
-      nodeObject.getTransformTo(overlayObject),
+      toOverlay * nodeObject.getTransformTo(null),
       Offset.zero & nodeObject.size,
     );
     // Frame the scaled visual: a lifted item (DpadScaleEffect) grows around
@@ -1254,6 +1318,7 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
     final DpadHighlight? config = _config;
     if (config == null ||
         _wantsHidden ||
+        _reduceMotion ||
         config.nudgeOffset <= 0.0 ||
         _displayed == null) {
       return;
@@ -1272,6 +1337,37 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
     };
     _nudgeController.forward(from: 0.0);
     _wake();
+  }
+
+  /// Watches an abandoned target at a slow cadence. A route build can
+  /// outrun the unmeasured budget on a low-end TV; once the budget is spent
+  /// the highlight has gone dark, and with focus standing still no focus or
+  /// metrics event ever comes to revive it. The probe costs one transform
+  /// walk per [_giveUpRetryDelay] and recovers the moment the item finally
+  /// lays out; any focus change or dispose cancels it.
+  void _armGiveUpRetry() {
+    _giveUpRetry?.cancel();
+    _giveUpRetry = async.Timer(_giveUpRetryDelay, () {
+      if (!mounted || _target != null) {
+        return;
+      }
+      final FocusNode? node = _ownedPrimary();
+      if (node == null) {
+        return;
+      }
+      final DpadHighlight? config = _resolveFor(node);
+      if (config == null) {
+        // Restyled to nothing while dark (e.g. `DpadHighlight.none`, or
+        // its scope was removed): there is nothing left to recover.
+        return;
+      }
+      if (_measure(node, config) == null) {
+        // Still dark — keep watching while focus holds on it.
+        _armGiveUpRetry();
+        return;
+      }
+      _handleFocusChange();
+    });
   }
 
   void _onTick(Duration elapsed) {
@@ -1294,6 +1390,7 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
         if (++_unmeasuredFrames > (_displayed == null ? 120 : 30)) {
           _target = null;
           _fadeOut();
+          _armGiveUpRetry();
         }
       } else {
         _unmeasuredFrames = 0;
@@ -1307,11 +1404,15 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
           // the target and its origin through scrolls and route
           // transitions while it runs — a scrolling list moves the
           // takeoff item too, and a frozen origin would cut across the
-          // content. The corner radius morphs between the endpoint shapes.
+          // content. Each endpoint is measured with its own resolved
+          // configuration, so consecutive items with different paddings
+          // take off from their real edge. The corner radius morphs
+          // between the endpoint shapes.
           final double t = config.curve.transform(_flight.value);
-          final Rect from =
-              (_fromNode != null ? _measure(_fromNode!, config) : null) ??
-                  _flightFrom!;
+          final Rect from = (_fromNode != null
+              ? _measure(_fromNode!, _resolveFor(_fromNode!) ?? config)
+              : null) ??
+              _flightFrom!;
           _displayed = Rect.lerp(from, target, t)!;
           _displayedRadius = _lerpRadius(_radiusFrom, radius, t);
         } else {
@@ -1322,7 +1423,8 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
       }
     }
 
-    final FocusNode? item = node == null ? null : DpadMarks.itemOf(node);
+    final FocusNode? item =
+        node == null ? null : DpadMarks.itemOf(node) ?? node;
     final bool pressed = item != null && (DpadMarks.pressed[item] ?? false);
 
     // Edge bounce: out and back, peaking mid-way.

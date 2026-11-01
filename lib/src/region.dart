@@ -1,5 +1,7 @@
 import 'package:flutter/widgets.dart';
 
+import 'package:meta/meta.dart' show internal;
+
 import 'marks.dart';
 import 'traversal.dart';
 
@@ -51,9 +53,9 @@ enum DpadEnterBehavior {
   /// Restore focus to the item that was focused the last time the region
   /// held focus — the behavior users expect from TV rows and sidebars.
   ///
-  /// Falls back to the entry item (see [DpadFocusable.entry]), then to the
-  /// geometrically nearest item, when there is nothing to restore.
-  /// This is the default.
+  /// When the exact item is gone, the item closest to its remembered
+  /// position is chosen; then the entry item (see [DpadFocusable.entry]),
+  /// then the geometrically nearest item. This is the default.
   restore,
 
   /// Always focus the region's entry item ([DpadFocusable.entry]); falls
@@ -187,6 +189,13 @@ class DpadRegion extends StatefulWidget {
   /// Called when a key press hits a [DpadEdgeBehavior.stop] boundary, a
   /// [DpadEdgeBehavior.wrap] boundary with nothing to wrap to, or the
   /// first/last line of a [DpadEdgeBehavior.lineWrap] grid.
+  ///
+  /// These presses also reach [Dpad.onBlockedMove] (app-wide) and bounce
+  /// the flying highlight — wire feedback at exactly one of the layers.
+  /// One exception: a boundary discovered by an engine scroll retry (lazy
+  /// content that revealed nothing new) reports here only — the press
+  /// already returned, so [Dpad.onBlockedMove] and the bounce have no
+  /// part in it.
   final ValueChanged<TraversalDirection>? onEdge;
 
   /// Called with `true` when focus enters the region and `false` when it
@@ -262,6 +271,11 @@ class DpadRegionState extends State<DpadRegion> {
   }
 
   void _loadPersistentMemory() {
+    // Always start fresh: memory recorded under another logical identity
+    // (a different or absent [DpadRegion.memoryKey]) must not silently
+    // apply to this one.
+    _lastFocused = null;
+    _lastFocusedRect = null;
     final _RegionMemory? persisted = _persistentMemory[widget.memoryKey];
     if (persisted != null) {
       _lastFocused = persisted.node.target;
@@ -305,6 +319,7 @@ class DpadRegionState extends State<DpadRegion> {
   /// Records [node] as the region's focus memory.
   ///
   /// Called automatically whenever an item inside the region gains focus.
+  @internal
   void noteFocus(FocusNode node) {
     _lastFocused = node;
     _lastFocusedRect = DpadMarks.rectOf(node) ?? _lastFocusedRect;
@@ -317,6 +332,7 @@ class DpadRegionState extends State<DpadRegion> {
 
   /// Drops [node] from the focus memory, keeping its last known position as
   /// a geometric fallback. Called when a focusable is disposed.
+  @internal
   void forget(FocusNode node) {
     if (identical(_lastFocused, node)) {
       _lastFocused = null;
@@ -335,6 +351,7 @@ class DpadRegionState extends State<DpadRegion> {
   }
 
   /// Notifies [DpadRegion.onEdge] that navigation hit the region boundary.
+  @internal
   void notifyEdge(TraversalDirection direction) {
     widget.onEdge?.call(direction);
   }
@@ -342,6 +359,7 @@ class DpadRegionState extends State<DpadRegion> {
   /// Resolves the item that should receive focus when navigation enters
   /// this region, given the geometrically [nearest] candidate and the
   /// region's [candidates].
+  @internal
   FocusNode resolveEnter(FocusNode nearest, List<FocusNode> candidates) {
     switch (widget.enter) {
       case DpadEnterBehavior.nearest:

@@ -2,20 +2,24 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import 'effects.dart';
+import 'scroll.dart';
 
 /// Shared defaults for every [DpadFocusable] below a [DpadTheme] (or the
 /// [Dpad] root, which installs one).
 ///
 /// Individual [DpadFocusable]s override these values with their own
 /// parameters; anything left `null` falls back to the theme.
+/// [longSelectDuration] is the exception — it has no per-item parameter, so
+/// the theme (or nearest [DpadThemeData] scope) always decides it.
 @immutable
 class DpadThemeData {
   /// Creates d-pad defaults.
   const DpadThemeData({
     this.effects = defaultEffects,
-    this.scrollPadding = 48.0,
-    this.scrollDuration = const Duration(milliseconds: 220),
-    this.scrollCurve = Curves.easeOutCubic,
+    this.scrollPadding = DpadScroll.defaultPadding,
+    this.scrollDuration = DpadScroll.defaultDuration,
+    this.scrollCurve = DpadScroll.defaultCurve,
+    this.scrollAlignment = DpadRevealAlignment.nearest,
     this.longSelectDuration = const Duration(milliseconds: 500),
   });
 
@@ -27,6 +31,9 @@ class DpadThemeData {
 
   /// Effects applied to focusables that do not declare their own
   /// [DpadFocusable.effects] or [DpadFocusable.builder].
+  ///
+  /// The list is stored as given — treat it as immutable; mutating it after
+  /// construction changes behavior in place and breaks `==`.
   final List<DpadEffect> effects;
 
   /// Extra space kept between a focused item and the viewport edge when
@@ -39,6 +46,13 @@ class DpadThemeData {
   /// Curve of the auto-scroll animation.
   final Curve scrollCurve;
 
+  /// How the auto-scroll places a newly focused item along each scrollable's
+  /// axis — just enough to reveal it ([DpadRevealAlignment.nearest], the
+  /// default), or centered theater-style ([DpadRevealAlignment.center],
+  /// which centers every scrollable and ignores [scrollPadding]). See
+  /// [DpadRevealAlignment].
+  final DpadRevealAlignment scrollAlignment;
+
   /// How long the select key must be held before
   /// [DpadFocusable.onLongSelect] fires.
   final Duration longSelectDuration;
@@ -49,6 +63,7 @@ class DpadThemeData {
     double? scrollPadding,
     Duration? scrollDuration,
     Curve? scrollCurve,
+    DpadRevealAlignment? scrollAlignment,
     Duration? longSelectDuration,
   }) {
     return DpadThemeData(
@@ -56,6 +71,7 @@ class DpadThemeData {
       scrollPadding: scrollPadding ?? this.scrollPadding,
       scrollDuration: scrollDuration ?? this.scrollDuration,
       scrollCurve: scrollCurve ?? this.scrollCurve,
+      scrollAlignment: scrollAlignment ?? this.scrollAlignment,
       longSelectDuration: longSelectDuration ?? this.longSelectDuration,
     );
   }
@@ -70,6 +86,7 @@ class DpadThemeData {
         other.scrollPadding == scrollPadding &&
         other.scrollDuration == scrollDuration &&
         other.scrollCurve == scrollCurve &&
+        other.scrollAlignment == scrollAlignment &&
         other.longSelectDuration == longSelectDuration;
   }
 
@@ -79,6 +96,7 @@ class DpadThemeData {
         scrollPadding,
         scrollDuration,
         scrollCurve,
+        scrollAlignment,
         longSelectDuration,
       );
 }

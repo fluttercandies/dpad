@@ -2,6 +2,20 @@ import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
 
+/// How [DpadScroll.ensureVisible] places its target along each scrollable's
+/// axis.
+enum DpadRevealAlignment {
+  /// Reveals just enough: the target ends up at the near viewport edge with
+  /// the configured padding — content moves as little as possible.
+  nearest,
+
+  /// Centers the target in every scrollable — even when it is already
+  /// visible — the "theater" feel of TV apps, where every lateral move
+  /// keeps the focused poster mid-screen while the row glides under it.
+  /// Padding does not apply while centering.
+  center,
+}
+
 /// TV-aware "ensure visible" scrolling.
 ///
 /// Unlike [Scrollable.ensureVisible], this helper:
@@ -13,15 +27,23 @@ import 'package:flutter/widgets.dart';
 /// * respects reversed scrollables;
 /// * centers items that are larger than the viewport.
 abstract final class DpadScroll {
+  /// The shared auto-scroll defaults — the one source of truth for the feel
+  /// of reveals across [DpadThemeData], the traversal engine and
+  /// [DpadController.ensureVisible].
+  static const double defaultPadding = 48.0;
+  static const Duration defaultDuration = Duration(milliseconds: 220);
+  static const Curve defaultCurve = Curves.easeOutCubic;
+
   /// Scrolls every scrollable ancestor of [node] so the node's render box is
-  /// fully visible with [padding] around it.
+  /// fully visible with [padding] around it, placing it per [alignment].
   ///
   /// Does nothing if [node] is not attached to a laid-out render object.
   static void ensureVisible(
     FocusNode node, {
-    double padding = 48.0,
-    Duration duration = const Duration(milliseconds: 220),
-    Curve curve = Curves.easeOutCubic,
+    double padding = defaultPadding,
+    Duration duration = defaultDuration,
+    Curve curve = defaultCurve,
+    DpadRevealAlignment alignment = DpadRevealAlignment.nearest,
   }) {
     final BuildContext? context = node.context;
     if (context == null || !context.mounted) {
@@ -49,6 +71,7 @@ abstract final class DpadScroll {
         padding: padding,
         duration: duration,
         curve: curve,
+        alignment: alignment,
       );
     }
   }
@@ -59,6 +82,7 @@ abstract final class DpadScroll {
     required double padding,
     required Duration duration,
     required Curve curve,
+    required DpadRevealAlignment alignment,
   }) {
     final RenderObject? viewportObject = scrollable.context.findRenderObject();
     if (viewportObject is! RenderBox || !viewportObject.hasSize) {
@@ -93,7 +117,12 @@ abstract final class DpadScroll {
     );
 
     double geometricDelta;
-    if (targetExtent + pad * 2 > viewportExtent) {
+    if (alignment == DpadRevealAlignment.center) {
+      // Deliberate centering — even when the target is already visible —
+      // so every step in a row keeps landing mid-screen. Scrollables that
+      // cannot reach the centered offset clamp as usual.
+      geometricDelta = (targetStart + targetEnd) / 2 - viewportExtent / 2;
+    } else if (targetExtent + pad * 2 > viewportExtent) {
       // Larger than the viewport: center it.
       geometricDelta = (targetStart + targetEnd) / 2 - viewportExtent / 2;
     } else if (targetStart < pad) {
