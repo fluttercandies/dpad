@@ -160,10 +160,10 @@ class Dpad extends StatefulWidget {
 
   /// App-level key shortcuts, e.g. a search key or color buttons.
   ///
-  /// Suspended automatically while a text field is focused. The map is
-  /// stored as given — treat it as immutable; mutating it after handing it
-  /// over (or keying it to a rebuilt map literal) changes nothing until the
-  /// instance differs from the memoized one.
+  /// Suspended automatically while a text field is focused. A rebuild
+  /// compares the map by content (callbacks by identity), so an equal
+  /// fresh literal costs nothing and a changed one applies. Treat it as
+  /// immutable: mutating the instance in place goes unnoticed.
   final Map<LogicalKeyboardKey, VoidCallback> shortcuts;
 
   /// Whether the d-pad system keeps focus alive on its own. Defaults to

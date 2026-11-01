@@ -1,4 +1,3 @@
-import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter/widgets.dart';
 
 import 'highlight.dart';
@@ -39,17 +38,6 @@ abstract final class DpadMarks {
   /// visual, not the un-scaled layout rect; absent (or from a custom
   /// builder, whose scale the package cannot know) means `1.0`.
   static final Expando<double> visualScale = Expando<double>();
-
-  /// Select-like keys currently held down, across every `DpadFocusable`.
-  ///
-  /// A key-down that moves focus (its [DpadFocusable.onSelect] pushes a
-  /// route or requests another node) hands the subsequent OS key repeats to
-  /// an item that never saw the key-down. Without this registry those
-  /// repeats read as fresh presses and machine-gun `onSelect` on whatever
-  /// has focus now; with it, `_handleSelectKey` swallows repeats of any
-  /// key still held, on any item, until the matching key-up releases it.
-  static final Set<LogicalKeyboardKey> heldSelectKeys =
-      <LogicalKeyboardKey>{};
 
   /// Returns the geometry of [node] in global coordinates, or `null` when
   /// the node is not attached to a laid-out render object.

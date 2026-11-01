@@ -947,6 +947,12 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
   /// Where the current flight started from.
   Rect? _flightFrom;
 
+  /// [_fromNode]'s rect at takeoff. The origin follows the node's later
+  /// movement (scrolls, route transitions) relative to this, so a flight
+  /// retargeted mid-air takes off from the rect on screen, not from the
+  /// old target.
+  Rect? _fromAnchor;
+
   /// The corner radius the current flight started from.
   double? _radiusFrom;
 
@@ -1187,6 +1193,10 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
       // keeps the motion continuous when keys outrun the animation; the
       // corner radius morphs along with the rect.
       _flightFrom = _displayed;
+      final FocusNode? fromNode = _fromNode;
+      _fromAnchor = fromNode == null
+          ? null
+          : _measure(fromNode, _resolveFor(fromNode) ?? config);
       _radiusFrom = _displayedRadius ?? radius;
       _flight.duration = config.duration;
       _flight.forward(from: 0.0);
@@ -1240,6 +1250,7 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
       // instead of flying from a stale rect.
       _displayed = null;
       _flightFrom = null;
+      _fromAnchor = null;
       _radiusFrom = null;
       _fromNode = null;
       _shownNode = null;
@@ -1406,14 +1417,26 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
           // takeoff item too, and a frozen origin would cut across the
           // content. Each endpoint is measured with its own resolved
           // configuration, so consecutive items with different paddings
-          // take off from their real edge. The corner radius morphs
-          // between the endpoint shapes.
+          // take off from their real edge. The origin is the rect on
+          // screen at takeoff, moved by however far the from-node has moved
+          // since — a retarget mid-flight continues from where the
+          // highlight is instead of snapping onto the old target. The
+          // corner radius morphs between the endpoint shapes.
           final double t = config.curve.transform(_flight.value);
-          final Rect from = (_fromNode != null
-              ? _measure(_fromNode!, _resolveFor(_fromNode!) ?? config)
-              : null) ??
-              _flightFrom!;
-          _displayed = Rect.lerp(from, target, t)!;
+          Rect origin = _flightFrom!;
+          final Rect? anchor = _fromAnchor;
+          final Rect? moved = anchor == null || _fromNode == null
+              ? null
+              : _measure(_fromNode!, _resolveFor(_fromNode!) ?? config);
+          if (anchor != null && moved != null) {
+            origin = Rect.fromLTRB(
+              origin.left + moved.left - anchor.left,
+              origin.top + moved.top - anchor.top,
+              origin.right + moved.right - anchor.right,
+              origin.bottom + moved.bottom - anchor.bottom,
+            );
+          }
+          _displayed = Rect.lerp(origin, target, t)!;
           _displayedRadius = _lerpRadius(_radiusFrom, radius, t);
         } else {
           // No flight: glue to the target so drift never accumulates.
@@ -1522,7 +1545,35 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
       _stableFrames = 0;
     } else if (++_stableFrames >= 3) {
       _ticker.stop();
+      _watchDrift();
     }
+  }
+
+  /// Checks the sleeping highlight's target once per frame the app renders
+  /// anyway. A reflow (a row inserted above, a sibling resizing) moves the
+  /// item without any focus, scroll or metrics event to wake the tracker;
+  /// the chain schedules no frames of its own, so an idle app pays nothing
+  /// and a frame elsewhere pays one transform walk.
+  void _watchDrift() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final FocusNode? node = _target;
+      final DpadHighlight? config = _config;
+      final Rect? displayed = _displayed;
+      if (!mounted ||
+          _ticker.isActive ||
+          _wantsHidden ||
+          node == null ||
+          config == null ||
+          displayed == null) {
+        return;
+      }
+      final Rect? now = _measure(node, config);
+      if (now == null || !_rectNear(now, displayed)) {
+        _wake();
+      } else {
+        _watchDrift();
+      }
+    });
   }
 
   /// Morphs the corner radius between the flight's endpoint shapes; an

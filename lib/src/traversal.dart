@@ -295,7 +295,7 @@ class DpadTraversalPolicy extends ReadingOrderTraversalPolicy {
             source.top > candidate.top;
       case TraversalDirection.down:
         return (source.top < candidate.top ||
-                source.bottom <= candidate.bottom) &&
+                source.bottom <= candidate.top) &&
             source.bottom < candidate.bottom;
     }
   }

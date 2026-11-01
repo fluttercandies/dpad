@@ -428,18 +428,11 @@ class _DpadFocusableState extends State<DpadFocusable> {
   }
 
   KeyEventResult _handleSelectKey(KeyEvent event) {
-    // The held-key registry tracks physical key state, so a key-up clears
-    // it before any early return — even an item disabled mid-hold must
-    // release its key (no repeats can follow a key-up).
-    if (event is KeyUpEvent) {
-      DpadMarks.heldSelectKeys.remove(event.logicalKey);
-    }
     if (!widget.enabled) {
       return KeyEventResult.ignored;
     }
     if (event is KeyDownEvent) {
       _selectKeyDown = true;
-      DpadMarks.heldSelectKeys.add(event.logicalKey);
       _startPress();
       if (widget.onLongSelect == null) {
         _handleSelect();
@@ -447,13 +440,11 @@ class _DpadFocusableState extends State<DpadFocusable> {
       return KeyEventResult.handled;
     }
     if (event is KeyRepeatEvent) {
-      // Swallow repeats so a held select key never machine-guns onSelect —
+      // A select fires once per press, so repeats are always swallowed —
       // including repeats landing on an item that never saw the key-down,
-      // because the handler that did moved focus away (a pushed route, a
-      // dialog, a programmatic requestFocus inside onSelect).
-      return DpadMarks.heldSelectKeys.contains(event.logicalKey)
-          ? KeyEventResult.handled
-          : KeyEventResult.ignored;
+      // because whatever did moved focus away (a pushed route, a dialog, a
+      // plain button's onPressed requesting focus).
+      return KeyEventResult.handled;
     }
     if (event is KeyUpEvent) {
       if (!_selectKeyDown) {
