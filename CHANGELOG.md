@@ -102,6 +102,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   left the ring painted at its old place. The sleeping highlight now checks
   its target after every frame the app renders — no extra frames when the
   app is idle.
+- **The highlight no longer trails a scroll by a frame.** The tracker
+  measured the item before the frame's layout, so every scroll frame painted
+  the highlight where the item had been one frame earlier — up to 32px
+  behind on a 120Hz panel, more at 240Hz, and a visible overshoot-and-settle
+  on centered reveals. Effects wrapped in `DpadHighlightState.positioned`
+  (every built-in one, and the vignette's hole) now follow the item at paint
+  time, in the same frame; the flight's progress runs on the tracker's own
+  clock, so the painted rect and `DpadHighlightState.t` describe the same
+  frame.
+- **The highlight's timing holds at any refresh rate.** Going to sleep after
+  a landing and giving up on an unmeasurable target were counted in frames
+  (3, and 30 or 120) — budgets that halved at 120Hz and quartered at 240Hz.
+  They are timed now: 50ms of standing still, and 500ms (2s for a first
+  appearance) without geometry.
 - **The flying highlight works on Flutter 3.19–3.23 again.** Its
   measurement used sibling-to-sibling `getTransformTo`, which only exists
   on Flutter 3.24+; on older versions the first focus change crashed in
