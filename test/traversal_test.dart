@@ -37,6 +37,80 @@ void main() {
       expect(b.hasPrimaryFocus, isTrue);
     });
 
+    testWidgets('down never picks an item that starts above the source',
+        (tester) async {
+      final a1 = FocusNode();
+      final a2 = FocusNode();
+      final b1 = FocusNode();
+      final tall = FocusNode();
+      final top = FocusNode();
+      final bottom = FocusNode();
+
+      // A row whose middle card is taller (a two-line title) above a second
+      // row, then a tall tile beside two stacked items.
+      await tester.pumpWidget(tvApp(
+        home: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            DpadRegion(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  item('a1', a1, autofocus: true),
+                  const SizedBox(width: 20),
+                  DpadFocusable(
+                    focusNode: a2,
+                    effects: const <DpadEffect>[],
+                    child: const SizedBox(width: 60, height: 90),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 40),
+            DpadRegion(child: Row(children: [item('b1', b1)])),
+            const SizedBox(height: 40),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                DpadFocusable(
+                  focusNode: tall,
+                  effects: const <DpadEffect>[],
+                  child: const SizedBox(width: 60, height: 300),
+                ),
+                const SizedBox(width: 100),
+                Column(children: [
+                  item('top', top),
+                  const SizedBox(height: 120),
+                  item('bottom', bottom),
+                ]),
+              ],
+            ),
+          ],
+        ),
+      ));
+      await tester.pump();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      expect(b1.hasPrimaryFocus, isTrue,
+          reason: 'down leaves the row; the taller neighbor beside the '
+              'source is not below it');
+
+      bottom.requestFocus();
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      expect(bottom.hasPrimaryFocus, isTrue,
+          reason: 'a tile enclosing the source vertically is not below it');
+
+      top.requestFocus();
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+      await tester.pump();
+      expect(b1.hasPrimaryFocus, isTrue,
+          reason: 'up skips the enclosing tile the same way (symmetry)');
+    });
+
     testWidgets('vertical navigation stays in the column (beam preference)',
         (tester) async {
       final nodes = List<FocusNode>.generate(6, (_) => FocusNode());
@@ -1123,6 +1197,38 @@ void main() {
       expect(nodes[0].hasPrimaryFocus, isTrue,
           reason: 'no line above the first row: left is consumed');
       expect(edges, [TraversalDirection.right, TraversalDirection.left]);
+    });
+
+    testWidgets('lineWrap steps down past a taller cell of the same row',
+        (tester) async {
+      final List<FocusNode> nodes =
+          List<FocusNode>.generate(6, (_) => FocusNode());
+      Widget cell(int i, {double height = 60}) => DpadFocusable(
+            focusNode: nodes[i],
+            effects: const <DpadEffect>[],
+            child: SizedBox(width: 60, height: height),
+          );
+
+      await tester.pumpWidget(tvApp(
+        home: DpadRegion(
+          horizontalEdge: DpadEdgeBehavior.lineWrap,
+          child: Column(children: <Widget>[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[cell(0), cell(1, height: 100), cell(2)],
+            ),
+            Row(children: <Widget>[cell(3), cell(4), cell(5)]),
+          ]),
+        ),
+      ));
+      nodes[2].requestFocus();
+      await tester.pump();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      expect(nodes[3].hasPrimaryFocus, isTrue,
+          reason: 'the taller cell beside the source is on the same line, '
+              'not the next one');
     });
 
     testWidgets('lineWrap edge steps between grid columns vertically',

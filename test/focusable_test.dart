@@ -86,6 +86,40 @@ void main() {
       expect(bSelected, 1);
     });
 
+    testWidgets(
+        'repeats of a key pressed on a plain button never select the item '
+        'focus moved to', (tester) async {
+      final button = FocusNode();
+      final poster = FocusNode();
+      int selected = 0;
+
+      await tester.pumpWidget(tvApp(
+        home: Column(
+          children: [
+            TextButton(
+              focusNode: button,
+              autofocus: true,
+              onPressed: poster.requestFocus,
+              child: const Text('OK'),
+            ),
+            item('poster', poster, onSelect: () => selected++),
+          ],
+        ),
+      ));
+      await tester.pump();
+
+      // The key-down activates the button, which moves focus to the
+      // poster: no DpadFocusable saw the press begin.
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.select);
+      await tester.pump();
+      expect(poster.hasPrimaryFocus, isTrue);
+      await tester.sendKeyRepeatEvent(LogicalKeyboardKey.select);
+      await tester.sendKeyRepeatEvent(LogicalKeyboardKey.select);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.select);
+      await tester.pump();
+      expect(selected, 0);
+    });
+
     testWidgets('holding select fires onLongSelect instead of onSelect',
         (tester) async {
       final node = FocusNode();

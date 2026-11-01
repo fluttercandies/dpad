@@ -143,6 +143,74 @@ void main() {
           reason: 'A second press mid-flight chains towards the new target.');
     });
 
+    testWidgets('a retarget mid-flight continues from where the ring is',
+        (WidgetTester tester) async {
+      final FocusNode a = FocusNode();
+      final FocusNode b = FocusNode();
+      final FocusNode c = FocusNode();
+      await tester.pumpWidget(tvApp(
+        highlight: const DpadHighlight(),
+        home: Align(
+          alignment: Alignment.topLeft,
+          child: Row(children: <Widget>[
+            item('a', a, autofocus: true),
+            const SizedBox(width: 100),
+            item('b', b),
+            const SizedBox(width: 100),
+            item('c', c),
+          ]),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      final Rect mid = await pumpMidFlight(
+        tester,
+        ringRect,
+        itemRect(tester, 'a'),
+        itemRect(tester, 'b'),
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      double previous = mid.left;
+      for (int i = 0; i < 30; i++) {
+        await tester.pump(const Duration(milliseconds: 8));
+        final double left = ringRect(tester).left;
+        expect(left - previous, lessThan(40.0),
+            reason: 'No frame may teleport the ring onto B: the new flight '
+                'takes off from the mid-flight rect on screen.');
+        previous = left;
+      }
+      await tester.pumpAndSettle();
+      expect(ringRect(tester), itemRect(tester, 'c'));
+    });
+
+    testWidgets('a sleeping ring follows a reflow that moves the item',
+        (WidgetTester tester) async {
+      final FocusNode a = FocusNode();
+      final ValueNotifier<bool> inserted = ValueNotifier<bool>(false);
+      addTearDown(inserted.dispose);
+      await tester.pumpWidget(tvApp(
+        highlight: const DpadHighlight(),
+        home: ValueListenableBuilder<bool>(
+          valueListenable: inserted,
+          builder: (BuildContext context, bool on, Widget? child) =>
+              Column(children: <Widget>[
+            if (on) const SizedBox(height: 120),
+            item('a', a, autofocus: true),
+          ]),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(ringRect(tester), itemRect(tester, 'a'));
+
+      // Data arrives and a row appears above: no focus, scroll or metrics
+      // event reaches the highlight.
+      inserted.value = true;
+      await tester.pumpAndSettle();
+      expect(ringRect(tester), itemRect(tester, 'a'),
+          reason: 'The asleep tracker notices the item moved and re-glues.');
+    });
+
     testWidgets('materializes in place on first appearance',
         (WidgetTester tester) async {
       final FocusNode a = FocusNode();
@@ -1303,7 +1371,7 @@ group('fade and lift regressions', () {
               'position — a frozen takeoff rect cuts across scrolled '
               'content.');
       await tester.pumpAndSettle();
-      expect(itemRect(tester, 'i6'), itemRect(tester, 'i6'));
+      expect(last!.rect, itemRect(tester, 'i6'));
     });
 
     testWidgets('a repeat while the bounce is running does not restart it',
