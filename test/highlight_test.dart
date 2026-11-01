@@ -2,6 +2,7 @@ import 'dart:ui' show lerpDouble;
 
 import 'package:dpad/dpad.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -1311,6 +1312,7 @@ group('fade and lift regressions', () {
         (WidgetTester tester) async {
       final List<FocusNode> nodes =
           List<FocusNode>.generate(8, (int i) => FocusNode());
+      const Key painted = ValueKey<String>('painted');
       DpadHighlightState? last;
       await tester.pumpWidget(tvApp(
         highlight: DpadHighlight(
@@ -1318,7 +1320,7 @@ group('fade and lift regressions', () {
           effects: <DpadHighlightEffect>[
             DpadHighlightCustomEffect((_, DpadHighlightState state) {
               last = state;
-              return state.positioned(const SizedBox.shrink());
+              return state.positioned(const SizedBox.shrink(key: painted));
             }),
           ],
         ),
@@ -1349,7 +1351,7 @@ group('fade and lift regressions', () {
             last!.t > 0.02 &&
             last!.t < 0.95 &&
             origin.left < originAtRest.left - 1.0) {
-          mid = last!.rect;
+          mid = tester.getRect(find.byKey(painted));
           midT = last!.t;
           break;
         }
@@ -1371,7 +1373,7 @@ group('fade and lift regressions', () {
               'position — a frozen takeoff rect cuts across scrolled '
               'content.');
       await tester.pumpAndSettle();
-      expect(last!.rect, itemRect(tester, 'i6'));
+      expect(tester.getRect(find.byKey(painted)), itemRect(tester, 'i6'));
     });
 
     testWidgets('a repeat while the bounce is running does not restart it',
@@ -1597,4 +1599,238 @@ group('fade and lift regressions', () {
           reason: 'the landed configuration adopted the zero durations');
     });
   });
+
+  group('high refresh rates', () {
+    // One 120Hz frame; 240Hz halves it again.
+    const Duration frame120 = Duration(microseconds: 8333);
+    const Duration frame240 = Duration(microseconds: 4167);
+
+    testWidgets('the ring stays on its item in every frame of a scroll',
+        (WidgetTester tester) async {
+      final ScrollController controller = ScrollController();
+      addTearDown(controller.dispose);
+      final List<FocusNode> nodes =
+          List<FocusNode>.generate(12, (int i) => FocusNode());
+      await tester.pumpWidget(tvApp(
+        highlight: const DpadHighlight(),
+        home: SizedBox(
+          height: 200,
+          child: ListView.builder(
+            controller: controller,
+            scrollDirection: Axis.horizontal,
+            itemCount: nodes.length,
+            itemBuilder: (BuildContext context, int i) => DpadFocusable(
+              focusNode: nodes[i],
+              autofocus: i == 2,
+              autoScroll: false,
+              effects: const <DpadEffect>[],
+              child: SizedBox(width: 200, child: Text('i$i')),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      for (final Duration frame in <Duration>[frame120, frame240]) {
+        controller.animateTo(
+          controller.offset + 300,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+        );
+        for (int i = 0; i < 40; i++) {
+          await tester.pump(frame);
+          expect(
+            (ringRect(tester).left - itemRect(tester, 'i2').left).abs(),
+            lessThan(0.5),
+            reason: 'The ring is painted where the item is in this frame, '
+                'not where it was one frame ago.',
+          );
+        }
+        await tester.pumpAndSettle();
+      }
+    });
+
+    testWidgets('the flight origin follows a scrolling item in every frame',
+        (WidgetTester tester) async {
+      final ScrollController controller = ScrollController();
+      addTearDown(controller.dispose);
+      final List<FocusNode> nodes =
+          List<FocusNode>.generate(12, (int i) => FocusNode());
+      DpadHighlightState? last;
+      await tester.pumpWidget(tvApp(
+        highlight: DpadHighlight(
+          curve: Curves.linear,
+          effects: <DpadHighlightEffect>[
+            DpadHighlightCustomEffect((_, DpadHighlightState state) {
+              last = state;
+              return state.positioned(
+                const SizedBox.shrink(key: DpadHighlightRingEffect.debugKey),
+              );
+            }),
+          ],
+        ),
+        home: Column(children: <Widget>[
+          SizedBox(
+            height: 100,
+            child: ListView.builder(
+              controller: controller,
+              scrollDirection: Axis.horizontal,
+              itemCount: nodes.length,
+              itemBuilder: (BuildContext context, int i) => DpadFocusable(
+                focusNode: nodes[i],
+                autofocus: i == 1,
+                autoScroll: false,
+                effects: const <DpadEffect>[],
+                child: SizedBox(width: 100, child: Text('i$i')),
+              ),
+            ),
+          ),
+          item('below', FocusNode()),
+        ]),
+      ));
+      await tester.pumpAndSettle();
+
+      // Fly down to `below` while the row scrolls the takeoff item away.
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      controller.animateTo(
+        200,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.linear,
+      );
+      for (int i = 0; i < 20; i++) {
+        await tester.pump(frame120);
+        final DpadHighlightState? state = last;
+        if (state == null || state.t <= 0.0 || state.t >= 1.0) {
+          continue;
+        }
+        final Rect from = itemRect(tester, 'i1');
+        final Rect to = itemRect(tester, 'below');
+        final Rect expected = Rect.lerp(from, to, state.t)!;
+        expect(
+          (ringRect(tester).left - expected.left).abs(),
+          lessThan(0.5),
+          reason: 'Mid-flight the painted rect blends the endpoints where '
+              'they are in this frame.',
+        );
+      }
+    });
+
+    testWidgets('a landed ring sleeps after the same span at any rate',
+        (WidgetTester tester) async {
+      final FocusNode a = FocusNode();
+      final FocusNode b = FocusNode();
+      await tester.pumpWidget(tvApp(
+        highlight: const DpadHighlight(curve: Curves.linear),
+        home: Row(children: <Widget>[
+          item('a', a, autofocus: true),
+          item('b', b),
+        ]),
+      ));
+      await tester.pumpAndSettle();
+
+      for (final Duration frame in <Duration>[frame120, frame240]) {
+        final String to = b.hasPrimaryFocus ? 'a' : 'b';
+        await tester.sendKeyEvent(
+          b.hasPrimaryFocus
+              ? LogicalKeyboardKey.arrowLeft
+              : LogicalKeyboardKey.arrowRight,
+        );
+        // Step to the landing frame.
+        for (int i = 0; i < 100; i++) {
+          await tester.pump(frame);
+          if ((ringRect(tester).left - itemRect(tester, to).left).abs() <
+              0.01) {
+            break;
+          }
+        }
+        // Standing still for 40ms is not yet settled — though that is
+        // four frames at 120Hz and nine at 240Hz.
+        final int short = 40 * 1000 ~/ frame.inMicroseconds;
+        for (int i = 0; i < short; i++) {
+          await tester.pump(frame);
+        }
+        expect(tester.binding.hasScheduledFrame, isTrue,
+            reason: 'The tracker keeps watching for a fixed span, not a '
+                'fixed frame count.');
+        await tester.pump(const Duration(milliseconds: 40));
+        await tester.pump(frame);
+        expect(tester.binding.hasScheduledFrame, isFalse,
+            reason: 'Once the span has passed the tracker sleeps.');
+      }
+    });
+
+    testWidgets('an unmeasurable target is waited for the same span at 240Hz',
+        (WidgetTester tester) async {
+      final FocusNode a = FocusNode();
+      final FocusNode b = FocusNode();
+      final ValueNotifier<bool> hidden = ValueNotifier<bool>(false);
+      addTearDown(hidden.dispose);
+      await tester.pumpWidget(tvApp(
+        highlight: const DpadHighlight(),
+        home: ValueListenableBuilder<bool>(
+          valueListenable: hidden,
+          builder: (BuildContext context, bool off, Widget? child) {
+            final Widget target = item('b', b);
+            return Row(children: <Widget>[
+              item('a', a, autofocus: true),
+              if (off) _Unlaid(child: target) else target,
+            ]);
+          },
+        ),
+      ));
+      await tester.pumpAndSettle();
+      b.requestFocus();
+      await tester.pumpAndSettle();
+      // The focused item stays mounted and focused but loses its geometry.
+      hidden.value = true;
+      await tester.pump();
+      b.requestFocus();
+      await tester.pump();
+      expect(b.hasPrimaryFocus, isTrue);
+
+      double opacity() => tester
+          .widget<FadeTransition>(find
+              .ancestor(
+                of: find.byKey(DpadHighlightRingEffect.debugKey),
+                matching: find.byType(FadeTransition),
+              )
+              .first)
+          .opacity
+          .value;
+      // 400ms of 240Hz frames: 96 frames, triple a 30-frame budget, but
+      // inside the 500ms the budget means.
+      for (int i = 0; i < 96; i++) {
+        await tester.pump(frame240);
+      }
+      expect(opacity(), 1.0,
+          reason: 'The highlight still waits for the target.');
+
+      // Past 500ms it gives up and fades out.
+      for (int i = 0; i < 36; i++) {
+        await tester.pump(frame240);
+      }
+      expect(opacity(), lessThan(1.0));
+    });
+  });
+}
+
+/// Keeps [child] mounted but never lays it out: a focused item without
+/// geometry.
+class _Unlaid extends SingleChildRenderObjectWidget {
+  const _Unlaid({super.child});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderUnlaid();
+}
+
+class _RenderUnlaid extends RenderBox
+    with RenderObjectWithChildMixin<RenderBox> {
+  @override
+  void performLayout() => size = Size.zero;
+
+  @override
+  void paint(PaintingContext context, Offset offset) {}
+
+  @override
+  void visitChildrenForSemantics(RenderObjectVisitor visitor) {}
 }
