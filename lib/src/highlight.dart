@@ -216,11 +216,27 @@ class DpadHighlightState {
     this.fromNode,
     this.t = 1.0,
     this.radius,
+  }) : _follow = null;
+
+  const DpadHighlightState._live(
+    this._follow, {
+    required this.rect,
+    required this.visible,
+    required this.pressed,
+    this.node,
+    this.fromNode,
+    this.t = 1.0,
+    this.radius,
   });
+
+  /// The overlay's paint-time follow; `null` for a hand-built state.
+  final _Follow? _follow;
 
   /// Where the highlight currently is, in the overlay's coordinate space —
   /// already lerping between items during a flight, inflated by
-  /// [DpadHighlight.padding], and shifted by any edge bounce.
+  /// [DpadHighlight.padding], and shifted by any edge bounce. Measured
+  /// before this frame's layout: [positioned] adds the item's movement in
+  /// the same frame (a scroll), so wrap effects with it.
   final Rect rect;
 
   /// The focus node the highlight is tracking — the focused item's own
@@ -260,10 +276,18 @@ class DpadHighlightState {
   final bool pressed;
 
   /// Places [child] at [rect] — the standard wrapper for effects that
-  /// decorate the focused item. Full-overlay effects (like
+  /// decorate the focused item. It also keeps [child] on the item while a
+  /// scroll moves it: the child is shifted at paint time by however far the
+  /// item moved after [rect] was measured, so it never trails a scrolling
+  /// item by a frame. Full-overlay effects (like
   /// [DpadHighlightVignetteEffect]) position themselves instead.
-  Widget positioned(Widget child) =>
-      Positioned.fromRect(rect: rect, child: child);
+  Widget positioned(Widget child) {
+    final _Follow? follow = _follow;
+    return Positioned.fromRect(
+      rect: rect,
+      child: follow == null ? child : _FollowItem(follow: follow, child: child),
+    );
+  }
 }
 
 /// One layer of the flying highlight's presentation.
@@ -699,6 +723,7 @@ class DpadHighlightVignetteEffect extends DpadHighlightEffect {
           hole: hole,
           color: color.withAlpha((opacity.clamp(0.0, 1.0) * 255).round()),
           radius: radius,
+          follow: state._follow,
         ),
       ),
     );
@@ -729,11 +754,16 @@ class _VignettePainter extends CustomPainter {
     required this.hole,
     required this.color,
     required this.radius,
-  });
+    required this.follow,
+  }) : super(repaint: follow?.repaint);
 
   final Rect hole;
   final Color color;
   final double radius;
+
+  /// Keeps the hole on a scrolling item, like [DpadHighlightState.positioned]
+  /// does for item effects; the wash itself stays put.
+  final _Follow? follow;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -744,7 +774,12 @@ class _VignettePainter extends CustomPainter {
     // blend would cost a full-screen offscreen pass on every flight frame.
     final Path wash = Path()
       ..addRect(Offset.zero & size)
-      ..addRRect(RRect.fromRectAndRadius(hole, Radius.circular(radius)))
+      ..addRRect(
+        RRect.fromRectAndRadius(
+          hole.shift(follow?.drift() ?? Offset.zero),
+          Radius.circular(radius),
+        ),
+      )
       ..fillType = PathFillType.evenOdd;
     canvas.drawPath(wash, Paint()..color = color);
   }
@@ -918,13 +953,34 @@ class DpadHighlightOverlay extends StatefulWidget {
 
 class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
     with WidgetsBindingObserver, TickerProviderStateMixin {
-  late final AnimationController _flight = AnimationController(vsync: this);
   late final AnimationController _appear = AnimationController(vsync: this);
   late final AnimationController _nudgeController = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 180),
   );
   late final Ticker _ticker = createTicker(_onTick);
+
+  /// Flight progress, `0.0` at takeoff to `1.0` landed, advanced by
+  /// [_onTick] on the tracker's own clock: the tick that measures the
+  /// endpoints also advances the progress, so the painted rect and
+  /// [DpadHighlightState.t] always describe the same frame. (A controller
+  /// of its own ticks before or after the tracker, depending on which
+  /// started first — a frame behind half the time.)
+  double _flightValue = 1.0;
+  Duration _flightDuration = Duration.zero;
+
+  /// The tracker's clock at the flight's first frame; `null` until then.
+  Duration? _flightStart;
+
+  bool get _flying => _flightValue < 1.0;
+
+  /// [DpadHighlightState.t]: the curve-adjusted flight progress.
+  double get _t {
+    final DpadHighlight? config = _config;
+    return config == null || !_flying
+        ? 1.0
+        : config.curve.transform(_flightValue);
+  }
 
   /// The node the highlight is tracking, when it belongs to this root.
   FocusNode? _target;
@@ -996,8 +1052,32 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
   /// bounce stands down, while the geometry still follows the target.
   bool _reduceMotion = false;
 
-  int _stableFrames = 0;
-  int _unmeasuredFrames = 0;
+  /// When the target was first seen standing still / unmeasurable, on the
+  /// ticker's clock. Sleep and give-up decisions are timed, not counted in
+  /// frames, so they hold at 60, 120 or 240Hz alike.
+  Duration? _stableSince;
+  Duration? _unmeasuredSince;
+
+  /// How long the target must stand still before the tracker sleeps —
+  /// three frames at 60Hz.
+  static const Duration _settleDelay = Duration(milliseconds: 50);
+
+  /// How long an unmeasurable target is waited for before the highlight
+  /// fades out: a first appearance waits longer (slow first route frames
+  /// are normal on low-end TVs) than a tracked highlight that went dark (a
+  /// defunct or offstage target never comes back).
+  static const Duration _firstMeasureBudget = Duration(seconds: 2);
+  static const Duration _lostMeasureBudget = Duration(milliseconds: 500);
+
+  /// The flight's endpoints as the last tick measured them, for [_drift].
+  _Measurement? _tickTarget;
+  _Measurement? _tickFrom;
+
+  /// Repaints the effects' paint-time follow on every tick and every wake,
+  /// so a scroll that moves the item repaints the highlight in that same
+  /// frame.
+  final ValueNotifier<int> _frames = ValueNotifier<int>(0);
+  late final _Follow _follow = _Follow(_drift, _frames);
 
   /// Slow probe for a target abandoned by the unmeasured budget — see
   /// [_armGiveUpRetry].
@@ -1039,9 +1119,9 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
     widget.host._detach(this);
     FocusManager.instance.removeListener(_handleFocusChange);
     WidgetsBinding.instance.removeObserver(this);
-    _flight.dispose();
     _appear.dispose();
     _nudgeController.dispose();
+    _frames.dispose();
     super.dispose();
   }
 
@@ -1165,11 +1245,13 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
     _fromNode = fromNode;
     _config = config;
     _appear.duration = config.appearDuration;
-    final Rect? target = _measure(node, config);
+    _tickTarget = null;
+    _tickFrom = null;
+    final Rect? target = _measure(node, config)?.rect;
     if (target == null) {
       // Not laid out yet (the focus change outran the route's first frame —
       // the tick loop takes over as soon as geometry exists).
-      _unmeasuredFrames = 0;
+      _unmeasuredSince = null;
       _flightPending = _displayed != null;
       _wake();
       return;
@@ -1186,8 +1268,7 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
       _displayedRadius = radius;
       _flightFrom = target;
       _radiusFrom = radius;
-      _flight.duration = config.duration;
-      _flight.value = 1.0;
+      _flightValue = 1.0;
     } else {
       // Fly from wherever the highlight currently is. Retargeting mid-flight
       // keeps the motion continuous when keys outrun the animation; the
@@ -1196,13 +1277,14 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
       final FocusNode? fromNode = _fromNode;
       _fromAnchor = fromNode == null
           ? null
-          : _measure(fromNode, _resolveFor(fromNode) ?? config);
+          : _measure(fromNode, _resolveFor(fromNode) ?? config)?.rect;
       _radiusFrom = _displayedRadius ?? radius;
-      _flight.duration = config.duration;
-      _flight.forward(from: 0.0);
+      _flightDuration = config.duration;
+      _flightStart = null;
+      _flightValue = config.duration > Duration.zero ? 0.0 : 1.0;
     }
     _appear.forward();
-    _unmeasuredFrames = 0;
+    _unmeasuredSince = null;
     if (mounted) {
       // The fields above changed outside a tick — this build is what first
       // puts the effect stack on screen (the tick loop's own setState is
@@ -1227,7 +1309,7 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
     _wantsHidden = true;
     // The motion is over — land the flight and cancel any bounce so the
     // ticker has nothing left to compute while the fade runs.
-    _flight.stop();
+    _flightValue = 1.0;
     _nudgeController
       ..stop()
       ..value = 0.0;
@@ -1251,6 +1333,7 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
       _displayed = null;
       _flightFrom = null;
       _fromAnchor = null;
+      _tickTarget = null;
       _radiusFrom = null;
       _fromNode = null;
       _shownNode = null;
@@ -1268,9 +1351,10 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
   // ---------------------------------------------------------------------
 
   /// The tracked node's rect in this overlay's coordinate space, inflated
-  /// by the item's focus scale and the configuration's padding. `null` when
-  /// not currently measurable.
-  Rect? _measure(FocusNode node, DpadHighlight config) {
+  /// by the item's focus scale and the configuration's padding, with the
+  /// render objects it was measured through. `null` when not currently
+  /// measurable.
+  _Measurement? _measure(FocusNode node, DpadHighlight config) {
     final BuildContext? nodeContext = node.context;
     if (nodeContext == null || !nodeContext.mounted) {
       return null;
@@ -1308,7 +1392,43 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
             width: local.width * scale,
             height: local.height * scale,
           );
-    return config.padding.inflateRect(visual);
+    return (
+      rect: config.padding.inflateRect(visual),
+      node: nodeObject,
+      local: local,
+    );
+  }
+
+  /// How far the tracked item has moved since this frame's tick measured
+  /// it — read in paint, after this frame's layout, so a scroll that moves
+  /// the item is followed in that same frame instead of one frame late.
+  /// Mid-flight the origin's shift blends in by the flight progress,
+  /// exactly as the next tick will lerp the re-measured endpoints.
+  Offset _drift() {
+    final _Measurement? target = _tickTarget;
+    final RenderObject? overlay = context.findRenderObject();
+    if (target == null || overlay is! RenderBox || !overlay.attached) {
+      return Offset.zero;
+    }
+    final Matrix4 toOverlay = overlay.getTransformTo(null)..invert();
+    final _Measurement? from = _tickFrom;
+    return Offset.lerp(
+      from == null ? Offset.zero : _shiftOf(from, toOverlay),
+      _shiftOf(target, toOverlay),
+      _t,
+    )!;
+  }
+
+  static Offset _shiftOf(_Measurement measured, Matrix4 toOverlay) {
+    final RenderBox node = measured.node;
+    if (!node.attached || !node.hasSize) {
+      return Offset.zero;
+    }
+    final Rect now = MatrixUtils.transformRect(
+      toOverlay * node.getTransformTo(null),
+      Offset.zero & node.size,
+    );
+    return now.center - measured.local.center;
   }
 
   // ---------------------------------------------------------------------
@@ -1319,10 +1439,13 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
     if (!mounted) {
       return;
     }
-    _stableFrames = 0;
+    _stableSince = null;
     if (!_ticker.isActive) {
       _ticker.start();
     }
+    // Repaint now: a scroll notification arrives mid-frame, and the
+    // paint-time follow reads the item's new position in that same frame.
+    _frames.value++;
   }
 
   void _nudge(TraversalDirection direction) {
@@ -1392,25 +1515,35 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
     // sleep check below.
     Rect? target;
     double? radius;
+    _tickTarget = null;
+    _tickFrom = null;
+    if (_flying) {
+      final Duration start = _flightStart ??= elapsed;
+      _flightValue = ((elapsed - start).inMicroseconds /
+              _flightDuration.inMicroseconds)
+          .clamp(0.0, 1.0);
+    }
     if (node != null && config != null && !_wantsHidden) {
-      target = _measure(node, config);
+      final _Measurement? measured = _measure(node, config);
+      target = measured?.rect;
       if (target == null) {
-        // A first appearance waits longer than a tracked highlight that
-        // went dark: slow first route frames are normal on low-end TVs,
-        // while a defunct or offstage target never comes back.
-        if (++_unmeasuredFrames > (_displayed == null ? 120 : 30)) {
+        // Timed, not counted: a frame budget would halve on a 120Hz panel.
+        final Duration since = _unmeasuredSince ??= elapsed;
+        if (elapsed - since >
+            (_displayed == null ? _firstMeasureBudget : _lostMeasureBudget)) {
           _target = null;
           _fadeOut();
           _armGiveUpRetry();
         }
       } else {
-        _unmeasuredFrames = 0;
+        _unmeasuredSince = null;
+        _tickTarget = measured;
         radius = _shapeRadiusOf(node);
         if (_displayed == null || _flightPending) {
           // First appearance, or geometry for a focus change that arrived
           // early (a route still building) — fly/materialize there.
           _showAt(target, radius, config);
-        } else if (_flight.isAnimating) {
+        } else if (_flying) {
           // Both endpoints are re-measured every frame: the flight follows
           // the target and its origin through scrolls and route
           // transitions while it runs — a scrolling list moves the
@@ -1422,18 +1555,19 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
           // since — a retarget mid-flight continues from where the
           // highlight is instead of snapping onto the old target. The
           // corner radius morphs between the endpoint shapes.
-          final double t = config.curve.transform(_flight.value);
+          final double t = config.curve.transform(_flightValue);
           Rect origin = _flightFrom!;
           final Rect? anchor = _fromAnchor;
-          final Rect? moved = anchor == null || _fromNode == null
+          final _Measurement? moved = anchor == null || _fromNode == null
               ? null
               : _measure(_fromNode!, _resolveFor(_fromNode!) ?? config);
+          _tickFrom = moved;
           if (anchor != null && moved != null) {
             origin = Rect.fromLTRB(
-              origin.left + moved.left - anchor.left,
-              origin.top + moved.top - anchor.top,
-              origin.right + moved.right - anchor.right,
-              origin.bottom + moved.bottom - anchor.bottom,
+              origin.left + moved.rect.left - anchor.left,
+              origin.top + moved.rect.top - anchor.top,
+              origin.right + moved.rect.right - anchor.right,
+              origin.bottom + moved.rect.bottom - anchor.bottom,
             );
           }
           _displayed = Rect.lerp(origin, target, t)!;
@@ -1474,8 +1608,13 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
         _pressed = pressed;
       });
     }
+    // The paint-time follow re-reads the endpoints after this frame's
+    // layout even when nothing above changed (a scroll in progress).
+    if (_tickTarget != null) {
+      _frames.value++;
+    }
 
-    _maybeStopTicker(target, radius);
+    _maybeStopTicker(target, radius, elapsed);
   }
 
   /// [DpadHighlight.radiusOf] for the tracked node, memoized on the
@@ -1524,8 +1663,8 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
     return touches;
   }
 
-  void _maybeStopTicker(Rect? target, double? radius) {
-    final bool animating = _flight.isAnimating ||
+  void _maybeStopTicker(Rect? target, double? radius, Duration elapsed) {
+    final bool animating = _flying ||
         _appear.isAnimating ||
         _nudgeController.isAnimating;
     bool settled = !animating;
@@ -1542,9 +1681,15 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
       settled = false; // Still fading out.
     }
     if (!settled) {
-      _stableFrames = 0;
-    } else if (++_stableFrames >= 3) {
+      _stableSince = null;
+      return;
+    }
+    // Timed, not counted: the target must stand still for a fixed span at
+    // any refresh rate (three frames would be 25ms at 120Hz, 12ms at 240Hz).
+    final Duration since = _stableSince ??= elapsed;
+    if (elapsed - since >= _settleDelay) {
       _ticker.stop();
+      _stableSince = null;
       _watchDrift();
     }
   }
@@ -1567,7 +1712,7 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
           displayed == null) {
         return;
       }
-      final Rect? now = _measure(node, config);
+      final Rect? now = _measure(node, config)?.rect;
       if (now == null || !_rectNear(now, displayed)) {
         _wake();
       } else {
@@ -1610,7 +1755,8 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
       return const SizedBox.shrink();
     }
     final FocusNode? node = _target;
-    final DpadHighlightState state = DpadHighlightState(
+    final DpadHighlightState state = DpadHighlightState._live(
+      _follow,
       rect: displayed.shift(_nudgeVector),
       visible: node != null,
       pressed: _pressed,
@@ -1621,9 +1767,7 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
       fromNode: _fromNode == null
           ? null
           : DpadMarks.itemOf(_fromNode!) ?? _fromNode,
-      t: _flight.isAnimating
-          ? config.curve.transform(_flight.value)
-          : 1.0,
+      t: _t,
       radius: _displayedRadius,
     );
     return IgnorePointer(
@@ -1641,5 +1785,84 @@ class _DpadHighlightOverlayState extends State<DpadHighlightOverlay>
         ),
       ),
     );
+  }
+}
+
+/// A measured rect plus what it was measured through, so paint can re-read
+/// where the same item is after this frame's layout.
+typedef _Measurement = ({Rect rect, RenderBox node, Rect local});
+
+/// What [DpadHighlightState.positioned] needs to keep an effect on its item
+/// at paint time: how far the item moved since the tick measured it, and
+/// when to repaint.
+class _Follow {
+  _Follow(this.drift, this.repaint);
+
+  final Offset Function() drift;
+  final Listenable repaint;
+}
+
+/// Shifts [child] at paint time by [_Follow.drift]. The tracker ticks
+/// before layout, so without this a scroll frame paints the highlight
+/// where the item was one frame earlier — tens of pixels behind at high
+/// refresh rates. Paint only, no rebuild.
+class _FollowItem extends SingleChildRenderObjectWidget {
+  const _FollowItem({required this.follow, required super.child});
+
+  final _Follow follow;
+
+  @override
+  _RenderFollowItem createRenderObject(BuildContext context) =>
+      _RenderFollowItem(follow);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderFollowItem renderObject,
+  ) {
+    renderObject.follow = follow;
+  }
+}
+
+class _RenderFollowItem extends RenderProxyBox {
+  _RenderFollowItem(this._follow);
+
+  _Follow _follow;
+  set follow(_Follow value) {
+    if (identical(value, _follow)) {
+      return;
+    }
+    if (attached) {
+      _follow.repaint.removeListener(markNeedsPaint);
+      value.repaint.addListener(markNeedsPaint);
+    }
+    _follow = value;
+    markNeedsPaint();
+  }
+
+  /// The shift the last paint applied.
+  Offset _shift = Offset.zero;
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    _follow.repaint.addListener(markNeedsPaint);
+  }
+
+  @override
+  void detach() {
+    _follow.repaint.removeListener(markNeedsPaint);
+    super.detach();
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    _shift = _follow.drift();
+    super.paint(context, offset + _shift);
+  }
+
+  @override
+  void applyPaintTransform(RenderObject child, Matrix4 transform) {
+    transform.multiply(Matrix4.translationValues(_shift.dx, _shift.dy, 0));
   }
 }
