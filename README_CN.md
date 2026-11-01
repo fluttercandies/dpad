@@ -44,7 +44,7 @@ Flutter 内置的方向焦点只会选择几何上*最近*的组件。在真实�
 
 - **🗂 带记忆的区域** —— 侧边栏、海报行、网格：每个 `DpadRegion` 优先在内部移动焦点；再次进入时，焦点回到你离开时的那一项。
 - **📐 光束式遍历** —— 与当前焦点对齐的候选项优先于斜向候选项。按"下"就是下，而不是"差不多是下，还稍微偏右"。
-- **🧲 逐轴边缘控制** —— 在每个区域边界上选择离开（leave）、停止（stop）或环绕（wrap）。轮播环绕、面板停止，其余自然流动。
+- **🧲 逐轴边缘控制** —— 在每个区域边界上选择离开（leave）、停止（stop）、环绕（wrap）或换行（lineWrap）。轮播环绕、面板停止、网格换行，其余自然流动。
 - **🛟 焦点永不丢失** —— 应用启动即有焦点，push 的新页面无需 `autofocus` 也会自动获得初始焦点，列表刷新、对话框关闭、应用从后台恢复都不会让焦点消失。没有焦点的遥控器就是坏掉的遥控器，Dpad 让这种状态不可能出现。
 - **⏯ 真实的遥控器语义** —— 选择 / 长按选择（带按压态视觉）、返回 / 菜单键、应用级快捷键、按键连发 —— 在文本框编辑期间全部自动让位，绝不劫持输入。
 - **⌨️ 文本框的正确姿势** —— 文本中间方向键移动光标；光标到达边缘（以及单行输入框的上下键）时方向键正常移出焦点，遥控器用户永远不会被困在搜索框里；IME 拼字期间按键完全归输入法。
@@ -60,7 +60,7 @@ Flutter 内置的方向焦点只会选择几何上*最近*的组件。在真实�
 
 ```yaml
 dependencies:
-  dpad: ^3.2.0
+  dpad: ^3.3.0
 ```
 
 ### 2. 安装根组件（一行）
@@ -201,6 +201,7 @@ MaterialApp(
       scrollPadding: 64,
     ),
   ),
+  home: const HomePage(),
 )
 ```
 
@@ -228,6 +229,7 @@ MaterialApp(
   builder: Dpad.wrap(
     highlight: const DpadHighlight(),   // 默认描边环，220ms 飞行
   ),
+  home: const HomePage(),
 )
 ```
 
@@ -243,7 +245,7 @@ theme: const DpadThemeData(effects: [DpadScaleEffect()]),
 
 **形状也会跟随。** 高亮会读取每个 item 自己的轮廓（`ClipRRect`、
 `BoxDecoration` 的圆角或圆形、`ClipOval`、物理模型），飞行时在两种形状
-之间插值变形 —— 从 12px 圆角的海报飞到圆形头像，圆角会平滑长成半圆
+之间插值变形 —— 从 12px 圆角的海报飞到圆形头像，圆角会平滑长成完全圆角
 （example 的 Library 网格就是演示）。带圆角的效果（环、聚光、暗角、
 光晕）默认跟随形状（`followShape: true`，显式开关，可关），显式传
 `borderRadius` 则固定不变。形状数据在你自己的模型里？用
@@ -252,7 +254,10 @@ theme: const DpadThemeData(effects: [DpadScaleEffect()]),
 **一个配置类型、三个放置点** —— 样式随焦点就近解析：
 
 ```dart
-Dpad(highlight: const DpadHighlight(), ...)   // 全局默认
+Dpad(
+  highlight: const DpadHighlight(), // 全局默认
+  child: app,
+)
 
 DpadHighlightTheme(                           // 页面或区域
   data: const DpadHighlight(
@@ -307,7 +312,7 @@ DpadFocusable(
 )
 ```
 
-返回、菜单、应用级快捷键、音效反馈与焦点检查器都挂在根上：
+返回、菜单、应用级快捷键、音效反馈、边界反馈与焦点检查器都挂在根上：
 
 ```dart
 Dpad.wrap(
@@ -319,12 +324,23 @@ Dpad.wrap(
   onFocusChange: (node) {       // 全局焦点"滴答"音效
     if (node != null) audio.playTick();
   },
+  onBlockedMove: (direction) {  // 焦点原地不动：撞到边界了
+    audio.playEdgeTick();       // （或触感震动，或"没有更多了"提示）
+  },
   shortcuts: {
     LogicalKeyboardKey.keyS: () => openSearch(),
   },
   debugOverlay: kDebugMode,     // 屏上焦点检查器
 )
 ```
+
+**受阻移动**（blocked move）是指没能移动焦点的方向键按下——前方没有可
+落焦的条目（行末、列表底），或边界被区域消费掉（`stop`，以及无处可去的
+`wrap`/`lineWrap`）。同样的按键也会让飞行高亮回弹（见
+`DpadHighlight.nudgeOffset`）；区域自身还会通过 `DpadRegion.onEdge`
+上报——反馈只接一层，否则边界音效会响两遍。唯一的例外：由懒加载滚动重试
+发现的边界（引擎滚动了、没有新内容出现）只会通过 `DpadRegion.onEdge`
+上报——那时按键早已返回。
 
 以上所有能力 —— 包括方向导航本身 —— 在 `TextField` 获得焦点时都会自动让位，输入永远不会被劫持。
 
@@ -377,9 +393,11 @@ final dpad = Dpad.of(context);
 
 dpad.moveDown();                 // 与按下遥控器方向键完全一致
 dpad.move(TraversalDirection.left);
-dpad.select();                   // "按下"当前焦点项
+dpad.select();                   // "按下"当前焦点项（带真实按键的
+                                 // 按压视觉脉冲）
 dpad.requestFocus(searchNode);   // 跳转焦点（同步更新区域记忆）
 dpad.ensureVisible();            // 带留白的滚动进入视野
+dpad.ensureVisible(alignment: DpadRevealAlignment.center);
 dpad.focused;                    // 当前焦点节点
 ```
 
@@ -411,11 +429,60 @@ dpad.focused;                    // 当前焦点节点
 5. **固定面板边缘用 `stop`，轮播用 `wrap`。** 侧边栏永远不该让焦点
    "掉出"屏幕；剧集条可以循环。
 6. **行为接到 `onSelect`，而不是子组件的 `onPressed`。**
-   `DpadFocusable` 是唯一焦点停靠点；包裹的 Material 按钮只是视觉。
+   `DpadFocusable` 是唯一焦点停靠点；包裹的 Material 按钮只是视觉 ——
+   对读屏也一样：要么把按钮的 `onPressed` 接到同一行为，要么用
+   `ExcludeSemantics` 包住它并给条目设 `semanticLabel`，让包装层成为
+   唯一的语义节点。
 7. **不要和文本框较劲。** `TextField` 保持裸用（不要包 `DpadFocusable`）；
    方向键在文本中间编辑光标、在边缘自动移出焦点。
 8. **用 `debugOverlay: true` 调试。** 隔着客厅看不见焦点 bug；检查器
    实时显示焦点节点、所属区域和几何信息。
+9. **内容行用居中 reveal 营造影院感。** 默认 reveal 只带留白露出焦点
+   条目本身；`scrollAlignment: DpadRevealAlignment.center`（主题、单个
+   条目或 `ensureVisible` 均可指定）让焦点海报始终停在视口中央——
+   Netflix 式的行内滑动感。
+
+## 无障碍
+
+* **读屏软件开箱即用。** 每个自包含的 `DpadFocusable`（默认形态）播报
+  为按钮；辅助激活（TalkBack 双击、VoiceOver 默认动作）触发
+  `onSelect`，长按触发 `onLongSelect` —— 前提是子组件没有自己的
+  按钮/点按语义：交互型子组件保留自己的语义节点与激活，读屏会先命中
+  子组件的回调（见最佳实践 6）。纯图片条目用 `semanticLabel`
+  提供播报名：
+
+  ```dart
+  DpadFocusable(
+    semanticLabel: movie.title,   // 播报在美术图之前
+    onSelect: () => play(movie),
+    child: PosterArt(movie),
+  )
+  ```
+
+* **尊重减弱动态效果。** 系统开启"移除动画"无障碍设置
+  （`MediaQuery.disableAnimations`）时：高亮飞行即时落位、显隐切换
+  立即完成、边界回弹停用、自动滚动改为跳转。
+
+## 上架检查清单
+
+提交 TV 应用商店前的最后一公里——1–2 是 Android TV / Fire TV 商店的
+硬性要求，其余是质量关卡：
+
+1. **Banner。** Android TV 要求 manifest 中声明 `android:banner`
+   图标，否则商店列表显示灰色占位图。
+2. **Leanback 启动 intent。** 主 Activity 声明
+   `<category android:name="android.intent.category.LEANBACK_LAUNCHER" />`；
+   仅在手机版独立分发时才把 `android.software.leanback` 设为
+   required-feature。
+3. **过扫描安全布局。** 电视会裁掉屏幕边缘约 5%。焦点指示器和文字要
+   留在 `SafeArea`（或显式边距）内；通栏美术可以继续通栏。
+4. **真机 D-pad 测试。** 键盘方向键能很好地模拟遥控器，但连按重复率、
+   SELECT 延迟、BACK 行为都有差异——上架前在电视或模拟器上过一遍。
+5. **键盘与触摸同样可用。** 电视也有浏览器、投屏和伴生屏：
+   `tapToSelect`（默认开）覆盖触摸，`DpadKeySet.copyWith` 覆盖键盘
+   用户。
+6. **关一次动画再走一遍。** 打开系统"移除动画"设置逛一遍应用——使用
+   本包后所有动效即时落位，不会有东西落在焦点后面。
 
 ## 与 Flutter 的协作方式
 
@@ -431,6 +498,10 @@ dpad.focused;                    // 当前焦点节点
 cd example
 flutter run -d macos   # 或 windows、linux、Android TV 模拟器…
 ```
+
+> **在本仓库内开发**（运行 example 或仓库内测试）需要 Flutter 3.32 及以上
+> —— example 的开发工具链只在该版本之后才能解析依赖。发布的包仍保持
+> 3.19 下限，使用方不受影响。
 
 ## 平台支持
 

@@ -44,7 +44,7 @@ Flutter's built-in directional focus picks the geometrically *closest* widget. O
 
 - **🗂 Regions with memory** — a sidebar, a poster row, a grid: each `DpadRegion` keeps focus inside itself first, and when you come back, you land on the item you left.
 - **📐 Beam-based traversal** — candidates aligned with the focused item beat diagonal ones. Down means *down*, not "down-ish and slightly to the right".
-- **🧲 Edge control per axis** — leave, stop, or wrap at every region boundary. Carousels wrap, panels stop, everything else flows.
+- **🧲 Edge control per axis** — leave, stop, wrap or line-wrap at every region boundary. Carousels wrap, panels stop, grids line-wrap, everything else flows.
 - **🛟 Focus never dies** — app starts with focus, pushed pages get initial focus without `autofocus`, focus survives list refreshes, dialog dismissals and app resume. A remote with nothing focused is a dead remote; Dpad makes that state unrepresentable.
 - **⏯ Real remote semantics** — select & long-select with pressed-state visuals, back/menu keys, app shortcuts, key repeat — all standing down automatically while a text field is being edited.
 - **⌨️ Text fields done right** — mid-text, arrows move the caret; at the caret's edge (and vertically in single-line fields) they navigate away, so a remote-only user is never trapped in a search box. IME composition owns the keys while active.
@@ -60,7 +60,7 @@ Everything is built on Flutter's own focus system (`FocusTraversalPolicy`, `Shor
 
 ```yaml
 dependencies:
-  dpad: ^3.2.0
+  dpad: ^3.3.0
 ```
 
 ### 2. Install the root (one line)
@@ -205,6 +205,7 @@ MaterialApp(
       scrollPadding: 64,
     ),
   ),
+  home: const HomePage(),
 )
 ```
 
@@ -233,6 +234,7 @@ MaterialApp(
   builder: Dpad.wrap(
     highlight: const DpadHighlight(),   // ring by default, 220ms flights
   ),
+  home: const HomePage(),
 )
 ```
 
@@ -263,7 +265,10 @@ shipped detection via `DpadHighlight.radiusOf(node)`.
 focus lands, nearest first:
 
 ```dart
-Dpad(highlight: const DpadHighlight(), ...)   // app-wide default
+Dpad(
+  highlight: const DpadHighlight(), // app-wide default
+  child: app,
+)
 
 DpadHighlightTheme(                           // a page or section
   data: const DpadHighlight(
@@ -334,12 +339,25 @@ Dpad.wrap(
   onFocusChange: (node) {       // the app-wide focus "tick" sound
     if (node != null) audio.playTick();
   },
+  onBlockedMove: (direction) {  // focus stayed put: an edge was hit
+    audio.playEdgeTick();       // (or haptics, or a "no more items" toast)
+  },
   shortcuts: {
     LogicalKeyboardKey.keyS: () => openSearch(),
   },
   debugOverlay: kDebugMode,     // on-screen focus inspector
 )
 ```
+
+A *blocked move* is a directional press that could not move focus — nothing
+to land on (the last item of a row), or a region boundary that consumed it
+(`stop`, a `wrap`/`lineWrap` with nowhere left to go). The same presses also
+bounce the flying highlight (see `DpadHighlight.nudgeOffset`), and regions
+report their own edges through `DpadRegion.onEdge` — wire feedback at
+exactly one of the layers, or the edge sound plays twice. One exception: a
+boundary discovered by a lazy-load scroll retry (the engine scrolled,
+nothing new appeared) reports through `DpadRegion.onEdge` only — the press
+already returned by then.
 
 All of these — and directional navigation itself — automatically stand down while a `TextField` is focused, so typing is never hijacked.
 
@@ -395,9 +413,11 @@ final dpad = Dpad.of(context);
 
 dpad.moveDown();                 // exactly like a remote key press
 dpad.move(TraversalDirection.left);
-dpad.select();                   // press the focused item
+dpad.select();                   // press the focused item (with the
+                                 // pressed-state pulse a real key gives)
 dpad.requestFocus(searchNode);   // jump focus (updates region memory)
 dpad.ensureVisible();            // padded scroll-into-view
+dpad.ensureVisible(alignment: DpadRevealAlignment.center);
 dpad.focused;                    // the currently focused node
 ```
 
@@ -433,13 +453,70 @@ predictable:
    should never let focus fall off the screen; an episode strip can loop.
 6. **Wire actions through `onSelect`, not the child's `onPressed`.**
    `DpadFocusable` is the single focus stop; a wrapped Material button is
-   just visuals.
+   just visuals — and for screen readers too: either wire the button's
+   `onPressed` to the same behavior, or wrap it in `ExcludeSemantics` and
+   give the item a `semanticLabel` so the wrapper is the single semantics
+   node.
 7. **Don't fight text fields.** Leave `TextField`s bare (not wrapped in
    `DpadFocusable`); arrows edit text mid-string and navigate away at the
    edges automatically.
 8. **Debug with `debugOverlay: true`.** Focus bugs are invisible on a TV
    across the room; the inspector shows the focused node, its region and
    geometry live.
+9. **Center row reveals for the theater feel.** The default reveal shows
+   the focused item with just enough padding; `scrollAlignment:
+   DpadRevealAlignment.center` (on the theme, an item, or
+   `ensureVisible`) keeps every focused poster mid-viewport instead —
+   the Netflix-style row glide.
+
+## Accessibility
+
+* **Screen readers work out of the box.** Every self-contained
+  `DpadFocusable` (the default) announces as a button; assistive activation
+  (TalkBack's double-tap, VoiceOver's default action) fires `onSelect`, and
+  a long-press fires `onLongSelect` — as long as the child does not expose
+  its own button/tap semantics: an interactive child keeps its node and
+  activation, so the reader reaches the child's callback first (see
+  best practice 6). Give image-only items a spoken name with
+  `semanticLabel`:
+
+  ```dart
+  DpadFocusable(
+    semanticLabel: movie.title,   // announced ahead of the artwork
+    onSelect: () => play(movie),
+    child: PosterArt(movie),
+  )
+  ```
+
+* **Reduced motion is respected.** When the platform's
+  "remove animations" accessibility setting is on
+  (`MediaQuery.disableAnimations`), highlight flights land instantly,
+  appear/fade cuts are immediate, the edge bounce stands down, and
+  auto-scrolls jump instead of animating.
+
+## Shipping checklist
+
+The last mile before submitting to a TV store — items 1–2 are Android
+TV/Fire TV store requirements, the rest are quality gates:
+
+1. **Banner.** Android TV requires a `android:banner` drawable in the
+   manifest, or the store listing shows a gray placeholder.
+2. **Leanback launcher intent.** Declare
+   `<category android:name="android.intent.category.LEANBACK_LAUNCHER" />`
+   on the main activity, and set `android.software.leanback` as a
+   required-feature only if the phone build is separate.
+3. **Overscan-safe layout.** TVs chop off ~5% at the screen edges.
+   Keep focus indicators and text inside `SafeArea` (or explicit margins);
+   full-bleed art can stay full-bleed.
+4. **Test on a real D-pad.** Keyboard arrows approximate remotes well,
+   but hold-repeat rate, SELECT latency and BACK behavior differ — run the
+   app on a TV or emulator before shipping.
+5. **Keyboard and touch too.** TVs get browsers, mirrors and companion
+   screens: `tapToSelect` (default on) covers touch, `DpadKeySet.copyWith`
+   covers keyboard-first users.
+6. **Turn the animations off once.** Flip the system's "remove animations"
+   setting and walk the app — with this package everything lands instantly
+   and nothing lags behind focus.
 
 ## How it plays with Flutter
 
@@ -455,6 +532,11 @@ The [example](https://github.com/fluttercandies/dpad/tree/main/example) is a com
 cd example
 flutter run -d macos   # or windows, linux, an Android TV emulator…
 ```
+
+> Developing **in this repository** (running the example or the in-repo
+> tests) needs Flutter 3.32 or newer — the example's dev tooling only
+> resolves there. The published package keeps the 3.19 floor; consumers
+> are unaffected.
 
 ## Platform support
 
