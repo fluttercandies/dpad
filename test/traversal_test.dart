@@ -207,6 +207,119 @@ void main() {
     });
 
     testWidgets(
+        'freezing navigation cancels a lazy-scroll retry in its completion '
+        'window', (tester) async {
+      final first = FocusNode();
+      final controller = ScrollController();
+      addTearDown(controller.dispose);
+      // Same layout as the mid-flight test above: every press takes the
+      // reveal-retry path (scroll, then re-search next frame).
+      await tester.pumpWidget(tvApp(
+        home: SizedBox(
+          height: 100,
+          child: ListView.builder(
+            controller: controller,
+            // ignore: deprecated_member_use
+            cacheExtent: 0,
+            scrollDirection: Axis.horizontal,
+            itemCount: 40,
+            itemBuilder: (context, index) => DpadFocusable(
+              focusNode: index == 0 ? first : null,
+              autofocus: index == 0,
+              effects: const <DpadEffect>[],
+              child: SizedBox(
+                width: 800,
+                height: 100,
+                child: Text('item$index'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+      expect(first.hasPrimaryFocus, isTrue);
+
+      // The press starts the 160ms reveal scroll; once it completes, the
+      // retry re-runs the search in a post-frame callback. The test
+      // binding drains microtasks eagerly, so both land in the same frame —
+      // inject the freeze exactly between them, the interleaving a real
+      // app produces when the freeze input is processed between frames:
+      // bump the rewind epoch before the retry callback gets its turn.
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      bool frozen = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        // Registered first, so it runs before the retry's own callback.
+        DpadTraversalPolicy.invalidateRewinds();
+        frozen = true;
+      });
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(frozen, isTrue);
+      expect(controller.offset, greaterThan(0),
+          reason: 'The reveal scroll completed before the freeze.');
+      expect(first.hasPrimaryFocus, isTrue,
+          reason: 'A freeze landing between the scroll completing and the '
+              'post-frame retry running cancels the retry too.');
+    });
+
+    testWidgets(
+        'a block discovered by a lazy retry reports onEdge only, never '
+        'onBlockedMove', (tester) async {
+      final first = FocusNode();
+      final edges = <TraversalDirection>[];
+      final blocked = <TraversalDirection>[];
+      // A viewport-wide focusable item with plain filler behind it: the
+      // press finds no candidate but the list still has scroll room, so it
+      // starts the scroll-for-more chain (reporting nothing itself). The
+      // focused item spans 0..800 and the extent ends at 200, so it stays
+      // on screen through the final scroll — the chain's last retry, not
+      // the key press, discovers the block from outside the key pipeline.
+      await tester.pumpWidget(tvApp(
+        onBlockedMove: blocked.add,
+        home: DpadRegion(
+          horizontalEdge: DpadEdgeBehavior.stop,
+          onEdge: edges.add,
+          child: SizedBox(
+            height: 100,
+            child: ListView(
+              // ignore: deprecated_member_use
+              cacheExtent: 0,
+              scrollDirection: Axis.horizontal,
+              children: [
+                DpadFocusable(
+                  focusNode: first,
+                  autofocus: true,
+                  effects: const <DpadEffect>[],
+                  child: const SizedBox(
+                      width: 800, height: 100, child: Text('item0')),
+                ),
+                const SizedBox(width: 200, child: Text('filler')),
+              ],
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(first.hasPrimaryFocus, isTrue);
+
+      // The press is consumed by the scroll — nothing reported yet.
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      expect(edges, isEmpty,
+          reason: 'the press is still busy scrolling for more content');
+
+      // The chain ran out of scroll room and, from its own retry pass,
+      // reported the block through the region edge alone — the documented
+      // exception: outcomes discovered outside the key pipeline never
+      // reach onBlockedMove.
+      await tester.pumpAndSettle();
+      expect(edges, [TraversalDirection.right]);
+      expect(blocked, isEmpty);
+      expect(first.hasPrimaryFocus, isTrue);
+    });
+
+    testWidgets(
         'a collapsed (zero-size) scrollable reports the edge instead of '
         'retrying forever', (tester) async {
       final controller = ScrollController();
@@ -569,6 +682,51 @@ void main() {
           reason: 'a frozen chain must not complete its rewind');
       expect(controller.offset, greaterThan(1000),
           reason: 'a frozen chain must not finish scrolling back');
+    });
+
+    testWidgets('a wrap rewind survives its page dying mid-chain',
+        (tester) async {
+      final controller = ScrollController();
+      final first = FocusNode();
+      addTearDown(controller.dispose);
+
+      Widget carousel() => tvApp(
+            home: SizedBox(
+              height: 100,
+              child: DpadRegion(
+                horizontalEdge: DpadEdgeBehavior.wrap,
+                child: ListView.builder(
+                  controller: controller,
+                  scrollDirection: Axis.horizontal,
+                  itemCount: 40,
+                  itemBuilder: (context, index) => DpadFocusable(
+                    focusNode: index == 0 ? first : null,
+                    autofocus: index == 0,
+                    effects: const <DpadEffect>[],
+                    child: SizedBox(width: 100, child: Text('item$index')),
+                  ),
+                ),
+              ),
+            ),
+          );
+
+      await tester.pumpWidget(carousel());
+      await tester.pump();
+      for (int i = 0; i < 39; i++) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+        await tester.pumpAndSettle();
+      }
+
+      // Start the rewind, then kill the whole page mid-chain: the next hop
+      // runs after the scrollable's element is defunct and must bail out
+      // silently instead of throwing on the defunct state's context.
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pumpWidget(tvApp(home: const SizedBox.shrink()));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 5));
+      expect(tester.takeException(), isNull,
+          reason: 'a defunct scrollable must end the chain quietly');
     });
 
     testWidgets('a programmatic requestFocus outranks an in-flight rewind',
@@ -1951,6 +2109,338 @@ void main() {
       nodes[0].requestFocus();
       await tester.pumpAndSettle();
       expect(controller.offset, 0);
+    });
+
+    testWidgets('reversed scrollables walk and reveal with flipped signs',
+        (tester) async {
+      final controller = ScrollController();
+      final nodes = List<FocusNode>.generate(6, (_) => FocusNode());
+
+      // reverse: true flips the axis direction: item 0 sits at the right
+      // end at offset 0, and pressing left walks toward higher offsets.
+      await tester.pumpWidget(tvApp(
+        home: SizedBox(
+          width: 300,
+          height: 100,
+          child: DpadRegion(
+            child: ListView(
+              controller: controller,
+              reverse: true,
+              scrollDirection: Axis.horizontal,
+              children: [
+                for (int i = 0; i < 6; i++)
+                  DpadFocusable(
+                    focusNode: nodes[i],
+                    autofocus: i == 0,
+                    effects: const <DpadEffect>[],
+                    child: SizedBox(
+                      width: 100,
+                      height: 100,
+                      child: Text('i$i'),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(nodes[0].hasPrimaryFocus, isTrue);
+      expect(controller.offset, 0);
+
+      for (int i = 1; i < 6; i++) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+        await tester.pumpAndSettle();
+        expect(nodes[i].hasPrimaryFocus, isTrue, reason: 'left reaches i$i');
+      }
+      expect(controller.offset, greaterThan(0),
+          reason: 'the reveal scrolled toward higher offsets');
+
+      for (int i = 4; i >= 0; i--) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+        await tester.pumpAndSettle();
+        expect(nodes[i].hasPrimaryFocus, isTrue, reason: 'right returns to i$i');
+      }
+      expect(controller.offset, 0, reason: 'home is offset 0 at the right end');
+    });
+
+    // Ten 60-wide items in a 240-wide viewport: item 6 spans 360..420, so
+    // "just enough" scrolling stops at 420 - (240 - 48) == 228 while the
+    // centered reveal goes to 390 - 240 / 2 == 270.
+
+    testWidgets('centered reveal lands the item mid-viewport', (tester) async {
+      final controller = ScrollController();
+      final nodes = List<FocusNode>.generate(10, (_) => FocusNode());
+
+      await tester.pumpWidget(tvApp(
+        theme: const DpadThemeData(scrollAlignment: DpadRevealAlignment.center),
+        home: Builder(
+          builder: (context) => SizedBox(
+            width: 240,
+            height: 100,
+            child: SingleChildScrollView(
+              controller: controller,
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: <Widget>[
+                  for (int i = 0; i < 10; i++) item('$i', nodes[i], size: 60),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      nodes[6].requestFocus();
+      await tester.pumpAndSettle();
+      expect(controller.offset, 270,
+          reason: 'the focused item ends up centered in the viewport');
+
+      // The start of the list clamps: item 0 cannot center past offset 0.
+      nodes[0].requestFocus();
+      await tester.pumpAndSettle();
+      expect(controller.offset, 0);
+    });
+
+    testWidgets('a per-item scrollAlignment overrides the theme',
+        (tester) async {
+      final controller = ScrollController();
+      final nodes = List<FocusNode>.generate(10, (_) => FocusNode());
+
+      await tester.pumpWidget(tvApp(
+        home: SizedBox(
+          width: 240,
+          height: 100,
+          child: SingleChildScrollView(
+            controller: controller,
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: <Widget>[
+                for (int i = 0; i < 10; i++)
+                  DpadFocusable(
+                    focusNode: nodes[i],
+                    effects: const <DpadEffect>[],
+                    scrollAlignment: i == 6
+                        ? DpadRevealAlignment.center
+                        : null,
+                    child: SizedBox(
+                      width: 60,
+                      height: 60,
+                      child: Center(child: Text('$i')),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      nodes[6].requestFocus();
+      await tester.pumpAndSettle();
+      expect(controller.offset, 270,
+          reason: 'the item asked to land centered despite the theme');
+    });
+
+    testWidgets('DpadController.ensureVisible centers on demand',
+        (tester) async {
+      final controller = ScrollController();
+      final nodes = List<FocusNode>.generate(10, (_) => FocusNode());
+
+      await tester.pumpWidget(tvApp(
+        home: SizedBox(
+          width: 240,
+          height: 100,
+          child: SingleChildScrollView(
+            controller: controller,
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: <Widget>[
+                for (int i = 0; i < 10; i++) item('$i', nodes[i], size: 60),
+              ],
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      nodes[0].requestFocus();
+      await tester.pumpAndSettle();
+
+      Dpad.of(tester.element(find.text('0'))).ensureVisible(
+        node: nodes[6],
+        alignment: DpadRevealAlignment.center,
+      );
+      await tester.pumpAndSettle();
+      expect(controller.offset, 270);
+    });
+
+    testWidgets(
+        'DpadController.ensureVisible follows the theme for null parameters',
+        (tester) async {
+      final controller = ScrollController();
+      final nodes = List<FocusNode>.generate(10, (_) => FocusNode());
+
+      // The theme wraps the scroll view, not just the root: the null
+      // parameters must resolve from the target's own scope (item 6 in a
+      // 240px viewport centers at 270, nearest-reveals at 228).
+      await tester.pumpWidget(tvApp(
+        home: DpadTheme(
+          data: const DpadThemeData(
+            scrollAlignment: DpadRevealAlignment.center,
+          ),
+          child: SizedBox(
+            width: 240,
+            height: 100,
+            child: SingleChildScrollView(
+              controller: controller,
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: <Widget>[
+                  for (int i = 0; i < 10; i++) item('$i', nodes[i], size: 60),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      nodes[0].requestFocus();
+      await tester.pumpAndSettle();
+
+      Dpad.of(tester.element(find.text('0'))).ensureVisible(node: nodes[6]);
+      await tester.pumpAndSettle();
+      expect(controller.offset, 270,
+          reason: 'the centered alignment comes from the scoped theme');
+    });
+
+    testWidgets('reduced motion jumps the reveal instead of animating',
+        (tester) async {
+      final controller = ScrollController();
+      final nodes = List<FocusNode>.generate(10, (_) => FocusNode());
+
+      await tester.pumpWidget(MaterialApp(
+        builder: (BuildContext context, Widget? child) {
+          return MediaQuery(
+            data: MediaQuery.of(context).copyWith(disableAnimations: true),
+            child: Dpad(child: child!),
+          );
+        },
+        home: Scaffold(
+          body: SizedBox(
+            width: 240,
+            height: 100,
+            child: SingleChildScrollView(
+              controller: controller,
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: <Widget>[
+                  for (int i = 0; i < 10; i++) item('$i', nodes[i], size: 60),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      nodes[6].requestFocus();
+      // No settling: with reduced motion the reveal must already be done.
+      await tester.pump();
+      await tester.pump();
+      expect(controller.offset, 228,
+          reason: 'the reveal jumped instead of animating');
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(controller.offset, 228,
+          reason: 'and nothing animates afterwards');
+    });
+
+    testWidgets('reduced motion jumps the lazy-load scroll too',
+        (tester) async {
+      final controller = ScrollController();
+      final nodes = List<FocusNode>.generate(4, (_) => FocusNode());
+
+      await tester.pumpWidget(MaterialApp(
+        builder: (BuildContext context, Widget? child) {
+          return MediaQuery(
+            data: MediaQuery.of(context).copyWith(disableAnimations: true),
+            child: Dpad(child: child!),
+          );
+        },
+        home: Scaffold(
+          body: SizedBox(
+            height: 600,
+            child: ListView(
+              controller: controller,
+              // Only the overlapping item is built: pressing down must
+              // scroll for more — in one jump, not a 160ms glide.
+              // ignore: deprecated_member_use
+              cacheExtent: 0,
+              children: <Widget>[
+                for (int i = 0; i < 4; i++) item('$i', nodes[i], size: 800),
+              ],
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(nodes[0].hasPrimaryFocus, isTrue);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1));
+      // Behavioral contract only: the step lands at once (an animated glide
+      // would have barely moved after 1ms) and nothing animates afterwards.
+      final double jumped = controller.offset;
+      expect(jumped, greaterThan(100),
+          reason: 'under reduced motion the whole step lands at once');
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(controller.offset, jumped,
+          reason: 'nothing animates afterwards');
+    });
+
+    testWidgets('reduced motion jumps a controller ensureVisible too',
+        (tester) async {
+      final controller = ScrollController();
+      final nodes = List<FocusNode>.generate(10, (_) => FocusNode());
+
+      await tester.pumpWidget(MaterialApp(
+        builder: (BuildContext context, Widget? child) {
+          return MediaQuery(
+            data: MediaQuery.of(context).copyWith(disableAnimations: true),
+            child: Dpad(child: child!),
+          );
+        },
+        home: Scaffold(
+          body: SizedBox(
+            width: 240,
+            height: 100,
+            child: SingleChildScrollView(
+              controller: controller,
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: <Widget>[
+                  for (int i = 0; i < 10; i++) item('$i', nodes[i], size: 60),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(nodes[0].hasPrimaryFocus, isTrue);
+
+      final DpadController dpad = Dpad.of(tester.element(find.text('0')));
+      dpad.ensureVisible(node: nodes[5]);
+      // No settling: the jump must already be done in this frame.
+      await tester.pump();
+      await tester.pump();
+      final double jumped = controller.offset;
+      expect(jumped, greaterThan(0),
+          reason: 'the controller reveal jumped instead of animating');
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(controller.offset, jumped,
+          reason: 'nothing animates afterwards');
     });
   });
 }

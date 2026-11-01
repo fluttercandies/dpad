@@ -226,12 +226,53 @@ void main() {
               'of a field');
     });
 
+    testWidgets('controller back stands down in a focused text field',
+        (tester) async {
+      final field = FocusNode();
+      final a = FocusNode();
+      int backs = 0;
+
+      await tester.pumpWidget(tvApp(
+        onBack: () {
+          backs++;
+          return true;
+        },
+        home: Column(
+          children: [
+            item('a', a),
+            TextField(focusNode: field),
+          ],
+        ),
+      ));
+      await tester.pump();
+      field.requestFocus();
+      await tester.pump();
+
+      final dpad = Dpad.of(tester.element(find.byType(TextField)));
+      // The IME owns the back key while editing; the programmatic
+      // equivalent must not act where the remote itself would not.
+      expect(dpad.back(), isFalse);
+      expect(backs, 0, reason: 'the IME owns the keys while editing');
+
+      // A programmatic move, by contrast, acts directly — the caret-editing
+      // gates belong to the key pipeline (documented difference).
+      expect(dpad.move(TraversalDirection.up), isTrue);
+      await tester.pump();
+      expect(a.hasPrimaryFocus, isTrue,
+          reason: 'a programmatic move bypasses the caret gates');
+    });
+
     testWidgets('controller moves report failure while frozen', (tester) async {
       final a = FocusNode();
       final b = FocusNode();
+      int backs = 0;
 
       await tester.pumpWidget(tvApp(
         enabled: false,
+        onBack: () {
+          backs++;
+          return true;
+        },
         home: Row(children: [item('a', a, autofocus: true), item('b', b)]),
       ));
       await tester.pump();
@@ -239,6 +280,12 @@ void main() {
       final dpad = Dpad.of(tester.element(find.text('a')));
       expect(dpad.moveDown(), isFalse);
       expect(dpad.move(TraversalDirection.right), isFalse);
+      // Tab-order moves and the programmatic back are remote-equivalent
+      // actions: a scripted caller must not navigate around the freeze.
+      expect(dpad.next(), isFalse);
+      expect(dpad.previous(), isFalse);
+      expect(dpad.back(), isFalse);
+      expect(backs, 0, reason: 'the programmatic back stands down too');
       await tester.pump();
       expect(b.hasPrimaryFocus, isFalse);
     });
@@ -265,6 +312,102 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
       await tester.pump();
       expect(b.hasPrimaryFocus, isTrue);
+    });
+
+    testWidgets('an equal-but-rebuilt key set keeps the shortcut map',
+        (tester) async {
+      final a = FocusNode();
+      final b = FocusNode();
+
+      DpadKeySet keys() => const DpadKeySet().copyWith(
+            right: const [LogicalKeyboardKey.keyD],
+          );
+
+      await tester.pumpWidget(tvApp(
+        keySet: keys(),
+        home: Row(children: [item('a', a, autofocus: true), item('b', b)]),
+      ));
+      await tester.pump();
+      final Finder shortcuts = find.descendant(
+        of: find.byType(Dpad),
+        matching: find.byType(Shortcuts),
+      );
+      final Map<ShortcutActivator, Intent> first =
+          tester.widget<Shortcuts>(shortcuts).shortcuts;
+
+      // A root rebuild (the settings-toggle pattern) hands over a new but
+      // equal instance; the memoized map must survive it — the key set
+      // compares by value, not identity.
+      await tester.pumpWidget(tvApp(
+        keySet: keys(),
+        home: Row(children: [item('a', a, autofocus: true), item('b', b)]),
+      ));
+      await tester.pump();
+      expect(
+          identical(first, tester.widget<Shortcuts>(shortcuts).shortcuts),
+          isTrue,
+          reason: 'an equal rebuild must not re-resolve the shortcut map');
+
+      // And the remapped key still drives through the reused map.
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyD);
+      await tester.pump();
+      expect(b.hasPrimaryFocus, isTrue);
+    });
+
+    testWidgets('an equal-but-rebuilt shortcuts map keeps the memo too',
+        (tester) async {
+      final a = FocusNode();
+      int hitsOne = 0;
+      int hitsTwo = 0;
+      // Top-level-stable callbacks: mapEquals compares values, and
+      // closures compare by identity — so the same tear-offs across
+      // rebuilds are what an app hoists (see the example's _shortcuts).
+      void callbackOne() => hitsOne++;
+      void callbackTwo() => hitsTwo++;
+
+      await tester.pumpWidget(tvApp(
+        shortcuts: <LogicalKeyboardKey, VoidCallback>{
+          LogicalKeyboardKey.f5: callbackOne,
+        },
+        home: item('a', a, autofocus: true),
+      ));
+      await tester.pump();
+      final Finder shortcuts = find.descendant(
+        of: find.byType(Dpad),
+        matching: find.byType(Shortcuts),
+      );
+      final Map<ShortcutActivator, Intent> first =
+          tester.widget<Shortcuts>(shortcuts).shortcuts;
+
+      // A fresh but equal map literal keeps the memoized shortcut map.
+      await tester.pumpWidget(tvApp(
+        shortcuts: <LogicalKeyboardKey, VoidCallback>{
+          LogicalKeyboardKey.f5: callbackOne,
+        },
+        home: item('a', a, autofocus: true),
+      ));
+      await tester.pump();
+      expect(
+          identical(first, tester.widget<Shortcuts>(shortcuts).shortcuts),
+          isTrue,
+          reason: 'an equal rebuild must not re-resolve the shortcut map');
+
+      // A genuinely different callback re-resolves — and the new one
+      // fires.
+      await tester.pumpWidget(tvApp(
+        shortcuts: <LogicalKeyboardKey, VoidCallback>{
+          LogicalKeyboardKey.f5: callbackTwo,
+        },
+        home: item('a', a, autofocus: true),
+      ));
+      await tester.pump();
+      expect(identical(first, tester.widget<Shortcuts>(shortcuts).shortcuts),
+          isFalse,
+          reason: 'a changed callback must rebuild the shortcut map');
+      await tester.sendKeyEvent(LogicalKeyboardKey.f5);
+      await tester.pump();
+      expect(hitsOne, 0);
+      expect(hitsTwo, 1);
     });
 
     testWidgets('onBack consumes back keys when it returns true',
@@ -1198,6 +1341,374 @@ void main() {
       await tester.pump();
       expect(b.hasPrimaryFocus, isTrue,
           reason: 'a window blur must not freeze navigation');
+    });
+  });
+
+  group('blocked moves (onBlockedMove)', () {
+    testWidgets('a dead end reports the blocked direction', (tester) async {
+      final a = FocusNode();
+      final b = FocusNode();
+      final List<TraversalDirection> blocked = <TraversalDirection>[];
+
+      await tester.pumpWidget(tvApp(
+        home: Row(children: [item('a', a, autofocus: true), item('b', b)]),
+        onBlockedMove: blocked.add,
+      ));
+      await tester.pump();
+
+      final DpadController dpad = Dpad.of(tester.element(find.text('a')));
+      expect(dpad.moveRight(), isTrue);
+      await tester.pump();
+      expect(blocked, isEmpty,
+          reason: 'a successful move is not a blocked move');
+
+      expect(dpad.moveRight(), isFalse);
+      expect(blocked, <TraversalDirection>[TraversalDirection.right],
+          reason: 'past the last item there is nothing to land on');
+    });
+
+    testWidgets('a region stop edge reports even though the key is consumed',
+        (tester) async {
+      final a = FocusNode();
+      final b = FocusNode();
+      final List<TraversalDirection> blocked = <TraversalDirection>[];
+
+      await tester.pumpWidget(tvApp(
+        onBlockedMove: blocked.add,
+        home: DpadRegion(
+          verticalEdge: DpadEdgeBehavior.stop,
+          child: Column(children: [
+            item('a', a, autofocus: true),
+            item('b', b),
+          ]),
+        ),
+      ));
+      await tester.pump();
+
+      final DpadController dpad = Dpad.of(tester.element(find.text('a')));
+      expect(dpad.moveDown(), isTrue);
+      await tester.pump();
+      expect(b.hasPrimaryFocus, isTrue);
+      expect(blocked, isEmpty,
+          reason: 'moving within the region is not blocked');
+
+      // The stop edge consumes the key (move() reports true) — the
+      // callback still fires.
+      expect(dpad.moveDown(), isTrue);
+      expect(blocked, <TraversalDirection>[TraversalDirection.down]);
+    });
+
+    testWidgets('a lineWrap with nowhere to line-step reports too',
+        (tester) async {
+      final a = FocusNode();
+      final List<TraversalDirection> blocked = <TraversalDirection>[];
+
+      await tester.pumpWidget(tvApp(
+        onBlockedMove: blocked.add,
+        home: DpadRegion(
+          verticalEdge: DpadEdgeBehavior.lineWrap,
+          child: Column(children: [item('a', a, autofocus: true)]),
+        ),
+      ));
+      await tester.pump();
+
+      final DpadController dpad = Dpad.of(tester.element(find.text('a')));
+      expect(dpad.moveDown(), isTrue,
+          reason: 'the key is consumed, like stop');
+      expect(blocked, <TraversalDirection>[TraversalDirection.down],
+          reason: 'a failed line step reads the same as any other block');
+    });
+
+    testWidgets('a region stop edge also fires DpadRegion.onEdge',
+        (tester) async {
+      final a = FocusNode();
+      final List<TraversalDirection> blocked = <TraversalDirection>[];
+      final List<TraversalDirection> edges = <TraversalDirection>[];
+
+      await tester.pumpWidget(tvApp(
+        onBlockedMove: blocked.add,
+        home: DpadRegion(
+          verticalEdge: DpadEdgeBehavior.stop,
+          onEdge: edges.add,
+          child: Column(children: [item('a', a, autofocus: true)]),
+        ),
+      ));
+      await tester.pump();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+      await tester.pump();
+      expect(blocked, <TraversalDirection>[TraversalDirection.up]);
+      expect(edges, <TraversalDirection>[TraversalDirection.up],
+          reason: 'the region and the root both learn about the block');
+    });
+
+    testWidgets('a successful wrap is not a blocked move', (tester) async {
+      final a = FocusNode();
+      final b = FocusNode();
+      final List<TraversalDirection> blocked = <TraversalDirection>[];
+
+      await tester.pumpWidget(tvApp(
+        onBlockedMove: blocked.add,
+        home: DpadRegion(
+          horizontalEdge: DpadEdgeBehavior.wrap,
+          child: Row(children: [item('a', a, autofocus: true), item('b', b)]),
+        ),
+      ));
+      await tester.pump();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      expect(b.hasPrimaryFocus, isTrue);
+      expect(blocked, isEmpty,
+          reason: 'the wrap moved focus — nothing was blocked');
+
+      // Wrapping back around at the other end is also a success.
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      expect(a.hasPrimaryFocus, isTrue);
+      expect(blocked, isEmpty);
+    });
+
+    testWidgets('a wrap with nothing to wrap to is blocked', (tester) async {
+      final a = FocusNode();
+      final List<TraversalDirection> blocked = <TraversalDirection>[];
+
+      await tester.pumpWidget(tvApp(
+        onBlockedMove: blocked.add,
+        home: DpadRegion(
+          horizontalEdge: DpadEdgeBehavior.wrap,
+          child: Center(child: item('a', a, autofocus: true)),
+        ),
+      ));
+      await tester.pump();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      expect(a.hasPrimaryFocus, isTrue,
+          reason: 'the key was consumed by the boundary');
+      expect(blocked, <TraversalDirection>[TraversalDirection.right],
+          reason: 'a one-item line has nothing to wrap to');
+    });
+
+    testWidgets('a blocked move does not leak into the next press',
+        (tester) async {
+      final a = FocusNode();
+      final b = FocusNode();
+      final List<TraversalDirection> blocked = <TraversalDirection>[];
+
+      await tester.pumpWidget(tvApp(
+        onBlockedMove: blocked.add,
+        home: Column(children: [
+          item('a', a, autofocus: true),
+          item('b', b),
+        ]),
+      ));
+      await tester.pump();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+      await tester.pump();
+      expect(blocked, <TraversalDirection>[TraversalDirection.up]);
+
+      // A successful press right after must not see the stale edge from
+      // the previous one.
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      expect(b.hasPrimaryFocus, isTrue);
+      expect(blocked, <TraversalDirection>[TraversalDirection.up],
+          reason: 'the blocked flag is reset on every fresh press');
+    });
+
+    testWidgets('a frozen d-pad never reports blocked moves', (tester) async {
+      final a = FocusNode();
+      final List<TraversalDirection> blocked = <TraversalDirection>[];
+
+      await tester.pumpWidget(tvApp(
+        enabled: false,
+        onBlockedMove: blocked.add,
+        home: Row(children: [item('a', a, autofocus: true)]),
+      ));
+      await tester.pump();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      expect(blocked, isEmpty, reason: 'a frozen UI swallows keys silently');
+    });
+
+    testWidgets('a direction consumed by onDirection is not blocked',
+        (tester) async {
+      final a = FocusNode();
+      final List<TraversalDirection> blocked = <TraversalDirection>[];
+
+      await tester.pumpWidget(tvApp(
+        onBlockedMove: blocked.add,
+        home: item(
+          'a',
+          a,
+          autofocus: true,
+          onDirection: (direction) => true,
+        ),
+      ));
+      await tester.pump();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      expect(blocked, isEmpty,
+          reason: 'the item consumed the key before navigation ran');
+    });
+  });
+
+  group('select press pulse', () {
+    testWidgets('select() pulses the pressed state around the activation',
+        (tester) async {
+      final a = FocusNode();
+      int selected = 0;
+      final List<bool> pressedLog = <bool>[];
+
+      await tester.pumpWidget(tvApp(
+        home: DpadFocusable(
+          focusNode: a,
+          autofocus: true,
+          onSelect: () => selected++,
+          builder: (context, state, child) {
+            pressedLog.add(state.pressed);
+            return SizedBox(
+              width: 60,
+              height: 60,
+              child: Center(child: Text('a${state.pressed ? '!' : ''}')),
+            );
+          },
+          child: const SizedBox.shrink(),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      pressedLog.clear();
+
+      final DpadController dpad = Dpad.of(tester.element(find.text('a')));
+      expect(dpad.select(), isTrue);
+      await tester.pump();
+      expect(selected, 1);
+      expect(pressedLog.last, isTrue,
+          reason: 'the activation visibly presses the item');
+
+      await tester.pump(DpadController.selectPulseDuration +
+          const Duration(milliseconds: 20));
+      expect(pressedLog.last, isFalse,
+          reason: 'the pulse releases after a beat');
+      expect(selected, 1,
+          reason: 'the pulse itself never dispatches a second activation');
+    });
+
+    testWidgets('the pulse defers to a real key press taking over',
+        (tester) async {
+      final a = FocusNode();
+      final List<bool> pressedLog = <bool>[];
+
+      await tester.pumpWidget(tvApp(
+        home: DpadFocusable(
+          focusNode: a,
+          autofocus: true,
+          onSelect: () {},
+          builder: (context, state, child) {
+            pressedLog.add(state.pressed);
+            return SizedBox(
+              width: 60,
+              height: 60,
+              child: Center(child: Text('a${state.pressed ? '!' : ''}')),
+            );
+          },
+          child: const SizedBox.shrink(),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      pressedLog.clear();
+
+      final DpadController dpad = Dpad.of(tester.element(find.text('a')));
+      dpad.select();
+      await tester.pump();
+
+      // A real key press mid-pulse takes the visuals over; its key-up
+      // ends the press even though the pulse timer is canceled.
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
+      await tester.pump(const Duration(milliseconds: 60));
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(pressedLog.last, isFalse,
+          reason: 'the real press lifecycle finishes cleanly');
+    });
+
+    testWidgets('a nested Dpad root owns its subtree\'s focus reporting',
+        (tester) async {
+      final FocusNode outer = FocusNode();
+      final FocusNode inner = FocusNode();
+      final List<String> outerReports = <String>[];
+
+      await tester.pumpWidget(tvApp(
+        onFocusChange: (FocusNode? node) => outerReports.add('report'),
+        home: Row(children: <Widget>[
+          item('o', outer, autofocus: true),
+          // A nested root: focus inside it belongs to it.
+          Dpad(child: item('i', inner)),
+        ]),
+      ));
+      await tester.pumpAndSettle();
+      expect(outer.hasPrimaryFocus, isTrue);
+      outerReports.clear();
+
+      inner.requestFocus();
+      await tester.pumpAndSettle();
+      expect(inner.hasPrimaryFocus, isTrue);
+      expect(outerReports, isEmpty,
+          reason: 'moves inside the nested root do not report to the outer '
+              'root, and the outer root does not remember inner nodes');
+
+      // Coming back out reports again, with the outer's own node.
+      outer.requestFocus();
+      await tester.pumpAndSettle();
+      expect(outer.hasPrimaryFocus, isTrue);
+      expect(outerReports, <String>['report']);
+    });
+
+    testWidgets('select() on a plain button still works (foreign target)',
+        (tester) async {
+      final a = FocusNode();
+      int selected = 0;
+      final List<bool> pressedLog = <bool>[];
+
+      await tester.pumpWidget(tvApp(
+        highlight: DpadHighlight(
+          effects: <DpadHighlightEffect>[
+            DpadHighlightCustomEffect(
+              (BuildContext context, DpadHighlightState state) {
+                pressedLog.add(state.pressed);
+                return const SizedBox.shrink();
+              },
+            ),
+          ],
+        ),
+        home: Center(
+          child: TextButton(
+            focusNode: a,
+            autofocus: true,
+            onPressed: () => selected++,
+            child: const Text('plain'),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      pressedLog.clear();
+
+      final DpadController dpad = Dpad.of(tester.element(find.text('plain')));
+      expect(dpad.select(), isTrue);
+      await tester.pump();
+      expect(selected, 1,
+          reason: 'activation works on targets outside the focusable pipeline');
+      expect(pressedLog.last, isTrue,
+          reason: 'the flying highlight sees the pressed pulse');
+
+      await tester.pump(DpadController.selectPulseDuration +
+          const Duration(milliseconds: 20));
+      expect(pressedLog.last, isFalse,
+          reason: 'the foreign pulse releases after the same beat');
     });
   });
 }

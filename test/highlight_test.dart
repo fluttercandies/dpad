@@ -556,6 +556,36 @@ void main() {
       expect(ringRect(tester), itemRect(tester, 'a'),
           reason: 'The bounce settles back onto the item.');
     });
+
+    testWidgets('a region stop edge bounces too', (WidgetTester tester) async {
+      final FocusNode a = FocusNode();
+      await tester.pumpWidget(tvApp(
+        highlight: const DpadHighlight(nudgeOffset: 8),
+        home: DpadRegion(
+          verticalEdge: DpadEdgeBehavior.stop,
+          child: Center(child: item('a', a, autofocus: true)),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+      final Rect base = itemRect(tester, 'a');
+      double top = base.top;
+      for (int i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        top = ringRect(tester).top;
+        if (top < base.top - 1.5) {
+          break;
+        }
+      }
+      expect(top, lessThan(base.top),
+          reason: 'A stop edge the region consumed still bounces — the '
+              'blocked press reads the same as a dead end.');
+      expect(top, greaterThanOrEqualTo(base.top - 8.01),
+          reason: 'The bounce never exceeds nudgeOffset.');
+      await tester.pumpAndSettle();
+      expect(ringRect(tester), itemRect(tester, 'a'));
+    });
   });
 
   group('resolution', () {
@@ -1043,7 +1073,7 @@ group('boundaries (motion)', () {
               '(observed: $builds builds).');
     });
   });
-group('review regressions', () {
+group('fade and lift regressions', () {
     testWidgets('the fade-out is visible halfway through, then gone',
         (WidgetTester tester) async {
       final FocusNode a = FocusNode();
@@ -1111,7 +1141,7 @@ group('review regressions', () {
     });
   });
 
-  group('independent review fixes', () {
+  group('shape, flight and idle regressions', () {
     testWidgets('a Material shape border defines the followed silhouette',
         (WidgetTester tester) async {
       final FocusNode card = FocusNode();
@@ -1381,6 +1411,122 @@ group('review regressions', () {
           reason: 'A fresh-but-equal configuration (inline effects now '
               'compared structurally) rebuilds once with the root — it '
               'must not relaunch a 220ms flight of rebuilds.');
+    });
+  });
+
+  group('reduced motion', () {
+    Widget motionApp(WidgetTester tester, {required Widget home}) {
+      return MaterialApp(
+        builder: (BuildContext context, Widget? child) {
+          return MediaQuery(
+            data: MediaQuery.of(context).copyWith(disableAnimations: true),
+            child: Dpad(
+              highlight: const DpadHighlight(
+                duration: Duration(milliseconds: 400),
+                nudgeOffset: 8,
+              ),
+              child: child!,
+            ),
+          );
+        },
+        home: Scaffold(body: home),
+      );
+    }
+
+    testWidgets('disableAnimations lands flights instantly',
+        (WidgetTester tester) async {
+      final FocusNode a = FocusNode();
+      final FocusNode b = FocusNode();
+      await tester.pumpWidget(motionApp(
+        tester,
+        home: Row(children: <Widget>[
+          item('a', a, autofocus: true),
+          item('b', b),
+        ]),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      // One frame is enough — a 400ms flight must not run under the
+      // platform's reduced-motion request.
+      await tester.pump();
+      expect(ringRect(tester), itemRect(tester, 'b'),
+          reason: 'disableAnimations lands the flight immediately');
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(ringRect(tester), itemRect(tester, 'b'),
+          reason: 'and nothing animates afterwards');
+    });
+
+    testWidgets('disableAnimations stands the edge bounce down',
+        (WidgetTester tester) async {
+      final FocusNode a = FocusNode();
+      await tester.pumpWidget(
+        motionApp(tester, home: Center(child: item('a', a, autofocus: true))),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      for (int i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        expect(ringRect(tester), itemRect(tester, 'a'),
+            reason: 'frame $i: no bounce under reduced motion');
+      }
+    });
+
+    testWidgets('toggling disableAnimations re-resolves the durations',
+        (WidgetTester tester) async {
+      final FocusNode a = FocusNode();
+      final FocusNode b = FocusNode();
+      final FocusNode c = FocusNode();
+      bool reduceMotion = false;
+      final Widget row = Row(children: <Widget>[
+        item('a', a, autofocus: true),
+        item('b', b),
+        item('c', c),
+      ]);
+
+      await tester.pumpWidget(MaterialApp(
+        builder: (BuildContext context, Widget? child) {
+          return MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(disableAnimations: reduceMotion),
+            child: Dpad(
+              highlight: const DpadHighlight(),
+              child: child!,
+            ),
+          );
+        },
+        home: Scaffold(body: row),
+      ));
+      await tester.pumpAndSettle();
+
+      // Animated while the setting is off: mid-flight frames exist.
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump(const Duration(milliseconds: 110));
+      final Rect mid = ringRect(tester);
+      expect(mid, isNot(itemRect(tester, 'b')));
+      await tester.pumpAndSettle();
+
+      // On: the same move lands within a frame.
+      reduceMotion = true;
+      await tester.pumpWidget(MaterialApp(
+        builder: (BuildContext context, Widget? child) {
+          return MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(disableAnimations: reduceMotion),
+            child: Dpad(
+              highlight: const DpadHighlight(),
+              child: child!,
+            ),
+          );
+        },
+        home: Scaffold(body: row),
+      ));
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      expect(ringRect(tester), itemRect(tester, 'c'),
+          reason: 'the landed configuration adopted the zero durations');
     });
   });
 }

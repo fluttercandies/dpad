@@ -1,5 +1,6 @@
 import 'package:dpad/dpad.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -41,6 +42,48 @@ void main() {
       await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
       await tester.pump();
       expect(selected, 1);
+    });
+
+    testWidgets(
+        'a held select key does not machine-gun the next focused item',
+        (tester) async {
+      final a = FocusNode();
+      final b = FocusNode();
+      int aSelected = 0;
+      int bSelected = 0;
+
+      await tester.pumpWidget(tvApp(
+        home: Column(
+          children: [
+            item('a', a, autofocus: true, onSelect: () {
+              aSelected++;
+              b.requestFocus();
+            }),
+            item('b', b, onSelect: () => bSelected++),
+          ],
+        ),
+      ));
+      await tester.pump();
+
+      // The key-down lands on `a`, whose onSelect moves focus to `b`. The
+      // OS repeats that follow never saw a key-down — they must not read
+      // as fresh presses of `b`.
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(a.hasPrimaryFocus, isFalse);
+      await tester.sendKeyRepeatEvent(LogicalKeyboardKey.enter);
+      await tester.sendKeyRepeatEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(aSelected, 1);
+      expect(bSelected, 0);
+
+      // The release ends the hold; a fresh press on `b` selects normally.
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(bSelected, 1);
     });
 
     testWidgets('holding select fires onLongSelect instead of onSelect',
@@ -309,22 +352,35 @@ void main() {
 
     testWidgets('child focusables are excluded by default', (tester) async {
       final node = FocusNode();
+      final sibling = FocusNode();
 
       await tester.pumpWidget(tvApp(
-        home: DpadFocusable(
-          focusNode: node,
-          autofocus: true,
-          effects: const <DpadEffect>[],
-          child: ElevatedButton(onPressed: () {}, child: const Text('go')),
+        home: Row(
+          children: [
+            DpadFocusable(
+              focusNode: node,
+              autofocus: true,
+              effects: const <DpadEffect>[],
+              child: ElevatedButton(onPressed: () {}, child: const Text('go')),
+            ),
+            item('sibling', sibling),
+          ],
         ),
       ));
       await tester.pump();
       expect(node.hasPrimaryFocus, isTrue);
 
-      // The wrapped button must not be a second d-pad stop.
+      // There is somewhere real to land, and the wrapped button must not
+      // be a second d-pad stop on the way there.
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
       await tester.pump();
-      expect(node.hasPrimaryFocus, isTrue);
+      expect(sibling.hasPrimaryFocus, isTrue,
+          reason: 'the move lands on the sibling, not the wrapped button');
+      expect(
+        node.traversalDescendants,
+        isEmpty,
+        reason: 'the child button is not a traversal candidate',
+      );
     });
 
     testWidgets('disabling a focused item releases focus handling',
@@ -467,6 +523,266 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pump();
       expect(selected, 1);
+    });
+  });
+
+  group('semantics', () {
+    testWidgets('screen reader activation fires onSelect exactly once',
+        (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      final node = FocusNode();
+      int selected = 0;
+
+      await tester.pumpWidget(tvApp(
+        home: Center(
+          child: DpadFocusable(
+            focusNode: node,
+            autofocus: true,
+            semanticLabel: 'pick me',
+            onSelect: () => selected++,
+            effects: const <DpadEffect>[],
+            child: const SizedBox(width: 60, height: 60),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      final SemanticsData data = find
+          .semantics.byLabel('pick me')
+          .evaluate()
+          .single
+          .getSemanticsData();
+      expect(data.hasAction(SemanticsAction.tap), isTrue,
+          reason: 'an activatable item exposes a tap action');
+
+      tester.semantics.tap(find.semantics.byLabel('pick me'));
+      await tester.pumpAndSettle();
+      expect(selected, 1,
+          reason: 'assistive activation dispatches exactly one select');
+      handle.dispose();
+    });
+
+    testWidgets('long-select items expose tap and long-press actions',
+        (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      final node = FocusNode();
+      int selected = 0;
+      int longSelected = 0;
+
+      await tester.pumpWidget(tvApp(
+        home: Center(
+          child: DpadFocusable(
+            focusNode: node,
+            autofocus: true,
+            semanticLabel: 'poster',
+            onSelect: () => selected++,
+            onLongSelect: () => longSelected++,
+            effects: const <DpadEffect>[],
+            child: const SizedBox(width: 60, height: 60),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      // The gesture detector stands down from semantics entirely; the
+      // semantics wrapper provides both actions.
+      final SemanticsData data = find
+          .semantics.byLabel('poster')
+          .evaluate()
+          .single
+          .getSemanticsData();
+      expect(data.hasAction(SemanticsAction.tap), isTrue);
+      expect(data.hasAction(SemanticsAction.longPress), isTrue);
+
+      tester.semantics.tap(find.semantics.byLabel('poster'));
+      await tester.pumpAndSettle();
+      expect(selected, 1,
+          reason: 'a semantic tap is a full tap: select fires');
+      expect(longSelected, 0);
+
+      tester.semantics.longPress(find.semantics.byLabel('poster'));
+      await tester.pumpAndSettle();
+      expect(longSelected, 1);
+      expect(selected, 1, reason: 'the long press does not double-fire select');
+      handle.dispose();
+    });
+
+    testWidgets('assistive activation also focuses the item', (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      final node = FocusNode();
+      final other = FocusNode();
+      int selected = 0;
+
+      await tester.pumpWidget(tvApp(
+        home: Center(
+          child: Row(children: <Widget>[
+            DpadFocusable(
+              focusNode: node,
+              semanticLabel: 'remote target',
+              onSelect: () => selected++,
+              effects: const <DpadEffect>[],
+              child: const SizedBox(width: 60, height: 60),
+            ),
+            item('other', other, autofocus: true),
+          ]),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(other.hasPrimaryFocus, isTrue);
+
+      // Like the touch path (tap-down focuses), a screen reader activation
+      // of an unfocused item must not fire onSelect out of focus context.
+      tester.semantics.tap(find.semantics.byLabel('remote target'));
+      await tester.pumpAndSettle();
+      expect(node.hasPrimaryFocus, isTrue,
+          reason: 'activation focuses the item first');
+      expect(selected, 1);
+      handle.dispose();
+    });
+
+    testWidgets('the accessibility label is announced',
+        (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      final node = FocusNode();
+
+      await tester.pumpWidget(tvApp(
+        home: Center(
+          child: DpadFocusable(
+            focusNode: node,
+            autofocus: true,
+            semanticLabel: 'Play Castaway',
+            onSelect: () {},
+            effects: const <DpadEffect>[],
+            child: const SizedBox(width: 60, height: 60),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(
+        find
+            .semantics.byLabel('Play Castaway')
+            .evaluate()
+            .single
+            .getSemanticsData()
+            .label,
+        contains('Play Castaway'),
+        reason: 'the explicit label is what screen readers announce',
+      );
+      handle.dispose();
+    });
+
+    testWidgets('disabled items expose no activation',
+        (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      final node = FocusNode();
+
+      await tester.pumpWidget(tvApp(
+        home: Center(
+          child: DpadFocusable(
+            focusNode: node,
+            autofocus: true,
+            enabled: false,
+            semanticLabel: 'locked',
+            onSelect: () {},
+            effects: const <DpadEffect>[],
+            child: const SizedBox(width: 60, height: 60),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      // Raw flags instead of an `isSemantics` matcher — the package's own
+      // declared floor (Flutter 3.19) must be able to run this suite.
+      final SemanticsData data =
+          find.semantics.byLabel('locked').evaluate().single.getSemanticsData();
+      // `hasFlag` is deprecated past 3.32 but its replacement does not
+      // exist on the 3.19 floor — the raw flags are the portable form.
+      // ignore: deprecated_member_use
+      expect(data.hasFlag(SemanticsFlag.isButton), isTrue);
+      // ignore: deprecated_member_use
+      expect(data.hasFlag(SemanticsFlag.isEnabled), isFalse,
+          reason: 'still a focus target, just not an enabled one');
+      handle.dispose();
+    });
+
+    testWidgets(
+        'an interactive child keeps its own semantics and activation',
+        (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      final node = FocusNode();
+      int selected = 0;
+      int pressed = 0;
+
+      // The README's best-practice shape: a Material button as pure
+      // visuals. The child is a semantics boundary, so the labeled node
+      // is the button's — its tap runs onPressed, not the wrapper's
+      // onSelect. Wiring them to the same behavior (or ExcludeSemantics)
+      // is the app's call; the contract to pin is that neither pipeline
+      // silently steals the other.
+      await tester.pumpWidget(tvApp(
+        home: Center(
+          child: DpadFocusable(
+            focusNode: node,
+            autofocus: true,
+            semanticLabel: 'item',
+            onSelect: () => selected++,
+            effects: const <DpadEffect>[],
+            child: ElevatedButton(
+              onPressed: () => pressed++,
+              child: const Text('go'),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      tester.semantics.tap(find.semantics.byLabel('go'));
+      await tester.pumpAndSettle();
+      expect(pressed, 1,
+          reason: 'the child node carries its own activation');
+      expect(selected, 0,
+          reason: 'the wrapper must not shadow an interactive child');
+
+      // The wrapper node keeps its own button role and serves its own
+      // action for readers that reach it.
+      final SemanticsData wrapper =
+          find.semantics.byLabel('item').evaluate().single.getSemanticsData();
+      // ignore: deprecated_member_use
+      expect(wrapper.hasFlag(SemanticsFlag.isButton), isTrue);
+      tester.semantics.tap(find.semantics.byLabel('item'));
+      await tester.pumpAndSettle();
+      expect(selected, 1,
+          reason: 'tapping the wrapper node itself fires onSelect');
+      handle.dispose();
+    });
+
+    testWidgets('tapToSelect: false still exposes activation',
+        (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      final node = FocusNode();
+      int selected = 0;
+
+      await tester.pumpWidget(tvApp(
+        home: Center(
+          child: DpadFocusable(
+            focusNode: node,
+            autofocus: true,
+            tapToSelect: false,
+            semanticLabel: 'keyboard only',
+            onSelect: () => selected++,
+            effects: const <DpadEffect>[],
+            child: const SizedBox(width: 60, height: 60),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      tester.semantics.tap(find.semantics.byLabel('keyboard only'));
+      await tester.pumpAndSettle();
+      expect(selected, 1,
+          reason: 'with the gesture off, the semantics wrapper serves the tap');
+      handle.dispose();
     });
   });
 }

@@ -14,11 +14,18 @@ Widget tvApp({
   bool Function()? onBack,
   VoidCallback? onMenu,
   ValueChanged<FocusNode?>? onFocusChange,
+  ValueChanged<TraversalDirection>? onBlockedMove,
   bool debugOverlay = false,
   bool enabled = true,
   bool restoreFocus = true,
 }) {
   return MaterialApp(
+    // Material 3 buttons default to InkSparkle on the android platform that
+    // widget tests report, and InkSparkle cannot paint in tests on old
+    // SDKs (its fragment shader loads with zero uniform slots and throws a
+    // RangeError during paint — flutter/flutter#114095). Several tests
+    // activate Material buttons, so pin a splash factory that paints.
+    theme: ThemeData(splashFactory: NoSplash.splashFactory),
     builder: Dpad.wrap(
       theme: theme,
       highlight: highlight,
@@ -27,6 +34,7 @@ Widget tvApp({
       onBack: onBack,
       onMenu: onMenu,
       onFocusChange: onFocusChange,
+      onBlockedMove: onBlockedMove,
       debugOverlay: debugOverlay,
       enabled: enabled,
       restoreFocus: restoreFocus,
