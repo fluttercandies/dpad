@@ -34,3 +34,31 @@ final ValueNotifier<bool> wasdKeys = ValueNotifier<bool>(false);
 /// it is (the pattern for playback overlays). Select keys still work, so
 /// the toggle can flip back.
 final ValueNotifier<bool> dpadEnabled = ValueNotifier<bool>(true);
+
+/// Runtime toggle for centered reveals ([DpadThemeData.scrollAlignment]) —
+/// when on, every focused item lands mid-viewport instead of just peeking
+/// in (the Netflix-style row theater).
+final ValueNotifier<bool> centeredReveal = ValueNotifier<bool>(false);
+
+/// How many directional moves have been blocked so far
+/// ([Dpad.onBlockedMove]) — the Settings section displays it live.
+final ValueNotifier<int> blockedMoveCount = ValueNotifier<int>(0);
+
+/// The direction of the most recent blocked move ([Dpad.onBlockedMove]),
+/// or `null` before the first one.
+final ValueNotifier<String?> lastBlockedMove = ValueNotifier<String?>(null);
+
+/// Restores every notifier to its launch default — the isolation story for
+/// both the widget tests and the integration harness.
+void resetAppState() {
+  highlightStyle.value = 1;
+  activeSection.value = 0;
+  showFocusInspector.value = false;
+  clickSounds.value = true;
+  rtlLayout.value = false;
+  wasdKeys.value = false;
+  dpadEnabled.value = true;
+  centeredReveal.value = false;
+  blockedMoveCount.value = 0;
+  lastBlockedMove.value = null;
+}

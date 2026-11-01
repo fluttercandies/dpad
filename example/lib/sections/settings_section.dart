@@ -15,8 +15,10 @@ import '../highlight_styles.dart';
 /// * programmatic focus with [DpadController.requestFocus],
 /// * a live focus-effect gallery (including a [DpadCustomEffect]),
 /// * runtime toggles for the focus inspector, click sounds, an app-wide
-///   right-to-left layout, a remapped key set (WASD) and freezing the
-///   whole d-pad ([Dpad.enabled]).
+///   right-to-left layout, a remapped key set (WASD), centered reveals
+///   ([DpadThemeData.scrollAlignment]) and freezing the whole d-pad
+///   ([Dpad.enabled]),
+/// * a live readout of blocked moves ([Dpad.onBlockedMove]).
 class SettingsSection extends StatefulWidget {
   const SettingsSection({super.key});
 
@@ -38,7 +40,7 @@ class _SettingsSectionState extends State<SettingsSection> {
     ('Scale + border', [DpadScaleEffect(), DpadBorderEffect()]),
     ('Glow', [DpadGlowEffect()]),
     ('Elevation', [DpadScaleEffect(scale: 1.04), DpadElevationEffect()]),
-    ('Spotlight', [DpadOpacityEffect(idleOpacity: 0.45)]),
+    ('Dim others', [DpadOpacityEffect(idleOpacity: 0.45)]),
     ('Tint', [DpadTintEffect()]),
     // Anything you can express as a builder can be an effect:
     ('Custom', [DpadCustomEffect(_underlineEffect)]),
@@ -196,6 +198,33 @@ class _SettingsSectionState extends State<SettingsSection> {
                     onChanged: (v) => dpadEnabled.value = v,
                   ),
                 ),
+                // Centered reveals: every focused item lands mid-viewport
+                // (the row-theater feel) instead of just peeking in.
+                ValueListenableBuilder<bool>(
+                  valueListenable: centeredReveal,
+                  builder: (context, value, _) => _ToggleRow(
+                    icon: Icons.vertical_align_center_rounded,
+                    title: 'Centered reveal (scrollAlignment)',
+                    value: value,
+                    onChanged: (v) => centeredReveal.value = v,
+                  ),
+                ),
+                // A live readout of Dpad.onBlockedMove — bump any edge in
+                // this column and watch it tick. The hook where a real app
+                // plays its edge sound or haptic.
+                AnimatedBuilder(
+                  animation: Listenable.merge(
+                    <Listenable>[blockedMoveCount, lastBlockedMove],
+                  ),
+                  builder: (context, _) => _InfoRow(
+                    icon: Icons.do_not_disturb_on_rounded,
+                    title: 'Blocked moves (Dpad.onBlockedMove)',
+                    value: blockedMoveCount.value == 0
+                        ? 'none yet'
+                        : '${blockedMoveCount.value}× · last: '
+                            '${lastBlockedMove.value}',
+                  ),
+                ),
               ],
             ),
           ),
@@ -280,11 +309,18 @@ class _SettingsSectionState extends State<SettingsSection> {
           ),
         ),
         const SizedBox(height: 16),
-        const Center(
-          child: Text(
-            'Hold SELECT on any poster for options · MENU or F1 for help · '
-            'H / L / S jump between sections',
-            style: TextStyle(color: Colors.white38, fontSize: 12),
+        Center(
+          child: ValueListenableBuilder<bool>(
+            valueListenable: wasdKeys,
+            builder: (context, wasd, _) => Text(
+              // `S` stands down while WASD movement owns the key.
+              wasd
+                  ? 'Hold SELECT on any poster for options · MENU or F1 '
+                      'for help · H / L jump between sections'
+                  : 'Hold SELECT on any poster for options · MENU or F1 '
+                      'for help · H / L / S jump between sections',
+              style: const TextStyle(color: Colors.white38, fontSize: 12),
+            ),
           ),
         ),
       ],
@@ -384,6 +420,52 @@ class _ChoiceRow extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A plain readout row — the same chrome as [_ToggleRow], not focusable,
+/// for live status the remote need not visit.
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({
+    required this.icon,
+    required this.title,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String title;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white.withAlpha(10),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 22, color: Colors.white54),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(title,
+                  style: const TextStyle(color: Colors.white54)),
+            ),
+            Text(
+              value,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
+          ],
         ),
       ),
     );

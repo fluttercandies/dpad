@@ -42,15 +42,16 @@ class DpadTvApp extends StatelessWidget {
             dpadEnabled,
             wasdKeys,
             highlightStyle,
+            centeredReveal,
           ]),
           builder: (context, _) {
             final rtl = rtlLayout.value;
             final wasd = wasdKeys.value;
             // The focus presentation catalog from Settings: classic
-            // per-item effects, or one of the flying-highlight looks from the
-            // While the highlight is on, per-item effects scale back to
-            // just the lift (the ring/brackets carry the outline) — the
-            // pairing recommended in the README.
+            // per-item effects, or one of the flying-highlight looks from
+            // highlight_styles.dart. While the highlight is on, per-item
+            // effects scale back to just the lift (the ring/brackets carry
+            // the outline) — the pairing recommended in the README.
             final int style = highlightStyle.value;
             final bool flying = style != 0;
             return Directionality(
@@ -93,6 +94,11 @@ class DpadTvApp extends StatelessWidget {
                 theme: DpadThemeData(
                   scrollPadding: 56,
                   longSelectDuration: const Duration(milliseconds: 650),
+                  // Centered reveals (the Netflix-style row theater) or the
+                  // classic "just enough" reveal — flipped from Settings.
+                  scrollAlignment: centeredReveal.value
+                      ? DpadRevealAlignment.center
+                      : DpadRevealAlignment.nearest,
                   effects: flying
                       ? const <DpadEffect>[DpadScaleEffect()]
                       : DpadThemeData.defaultEffects,
@@ -113,21 +119,26 @@ class DpadTvApp extends StatelessWidget {
                     SystemSound.play(SystemSoundType.click);
                   }
                 },
-                // App-level shortcuts (autosuspended while typing in
-                // Search, and while a dialog or sheet is open). With WASD
-                // movement on, S belongs to the d-pad, so its shortcut
-                // stands down for the toggle's lifetime.
-                shortcuts: <LogicalKeyboardKey, VoidCallback>{
-                  LogicalKeyboardKey.keyH: () => _jumpToSection(0),
-                  LogicalKeyboardKey.keyL: () => _jumpToSection(1),
-                  if (!wasd) LogicalKeyboardKey.keyS: () => _jumpToSection(2),
-                  LogicalKeyboardKey.keyI: () {
-                    if (!_overlayOpen) {
-                      showFocusInspector.value = !showFocusInspector.value;
-                    }
-                  },
-                  LogicalKeyboardKey.f1: _showAbout,
+                // Blocked moves bump a counter the Settings section shows
+                // live — the hook where a real app plays its edge sound or
+                // haptic.
+                onBlockedMove: (direction) {
+                  blockedMoveCount.value++;
+                  lastBlockedMove.value = switch (direction) {
+                    TraversalDirection.up => 'up',
+                    TraversalDirection.down => 'down',
+                    TraversalDirection.left => 'left',
+                    TraversalDirection.right => 'right',
+                  };
                 },
+                // App-level shortcuts. The package auto-suspends them
+                // while a text field holds focus; standing down while a
+                // dialog or sheet is open is the callbacks' own doing
+                // (see the _overlayOpen guards). The maps are hoisted:
+                // the root memoizes shortcuts by value, and fresh
+                // closures on every build would re-resolve it — the
+                // anti-pattern the package's docs warn about.
+                shortcuts: wasd ? _shortcutsNoS : _shortcuts,
                 // The built-in focus inspector, toggled from Settings.
                 debugOverlay: showFocusInspector.value,
                 child: child ?? const SizedBox.shrink(),
@@ -143,6 +154,29 @@ class DpadTvApp extends StatelessWidget {
   /// True while a route (dialog, sheet or detail page) is stacked: app
   /// shortcuts stand down so overlays keep the remote to themselves.
   static bool get _overlayOpen => _navigatorKey.currentState?.canPop() ?? false;
+
+  static void _toggleInspector() {
+    if (!_overlayOpen) {
+      showFocusInspector.value = !showFocusInspector.value;
+    }
+  }
+
+  /// Section jump keys and friends, built once (stable callbacks keep the
+  /// root's shortcut memo valid across rebuilds).
+  static final Map<LogicalKeyboardKey, VoidCallback> _shortcuts =
+      <LogicalKeyboardKey, VoidCallback>{
+    LogicalKeyboardKey.keyH: () => _jumpToSection(0),
+    LogicalKeyboardKey.keyL: () => _jumpToSection(1),
+    LogicalKeyboardKey.keyS: () => _jumpToSection(2),
+    LogicalKeyboardKey.keyI: _toggleInspector,
+    LogicalKeyboardKey.f1: _showAbout,
+  };
+
+  /// With WASD movement on, S belongs to the d-pad, so its shortcut
+  /// stands down for the toggle's lifetime.
+  static final Map<LogicalKeyboardKey, VoidCallback> _shortcutsNoS =
+      Map<LogicalKeyboardKey, VoidCallback>.of(_shortcuts)
+        ..remove(LogicalKeyboardKey.keyS);
 
   static void _jumpToSection(int index) {
     if (!_overlayOpen) {
@@ -225,8 +259,8 @@ class DpadTvApp extends StatelessWidget {
             2: IntrinsicColumnWidth(),
             3: FlexColumnWidth(),
           },
-          children: const <TableRow>[
-            TableRow(
+          children: <TableRow>[
+            const TableRow(
               children: <Widget>[
                 _PaddedCell.bottom(child: _KeyHintCap('↑ ↓ ← →')),
                 _PaddedCell.bottom(child: _KeyHintText('Move focus')),
@@ -234,7 +268,7 @@ class DpadTvApp extends StatelessWidget {
                 _PaddedCell.bottom(child: _KeyHintText('Select')),
               ],
             ),
-            TableRow(
+            const TableRow(
               children: <Widget>[
                 _PaddedCell.bottom(child: _KeyHintCap('hold ⏎')),
                 _PaddedCell.bottom(child: _KeyHintText('Options sheet')),
@@ -242,12 +276,14 @@ class DpadTvApp extends StatelessWidget {
                 _PaddedCell.bottom(child: _KeyHintText('Back')),
               ],
             ),
+            // `S` stands down while WASD movement owns the key (see the
+            // root shortcuts), so the caption reflects the live layout.
             TableRow(
               children: <Widget>[
-                _KeyHintCap('H · L · S · I'),
-                _KeyHintText('Sections · inspector'),
-                _KeyHintCap('F1 · Menu'),
-                _KeyHintText('This help'),
+                _KeyHintCap(wasdKeys.value ? 'H · L · I' : 'H · L · S · I'),
+                const _KeyHintText('Sections · inspector'),
+                const _KeyHintCap('F1 · Menu'),
+                const _KeyHintText('This help'),
               ],
             ),
           ],

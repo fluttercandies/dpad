@@ -1,11 +1,14 @@
 name: dpad_example
 description: A Netflix-style Flutter TV app showcasing the dpad package.
-version: 3.0.0
+version: 3.3.0
 publish_to: 'none'
 
 environment:
-  sdk: '>=3.3.0 <4.0.0'
-  flutter: '>=3.19.0'
+  # The library keeps the 3.19 floor; the example's dev tooling
+  # (flutter_cockpit_test 4.11.1) only resolves on Dart 3.8 /
+  # Flutter 3.32 and newer.
+  sdk: '>=3.8.0 <4.0.0'
+  flutter: '>=3.32.0'
 
 dependencies:
   flutter:

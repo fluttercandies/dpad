@@ -28,6 +28,12 @@ A complete, remote-drivable TV streaming UI built with the
 | `onDirection` volume slider (consumes left/right) | `lib/sections/settings_section.dart` |
 | Programmatic focus (`Dpad.of(context).requestFocus` + external `focusNode`) | `lib/sections/settings_section.dart` |
 | Live focus-effect gallery incl. `DpadCustomEffect`, wrap + `enter: nearest` chips | `lib/sections/settings_section.dart` |
+| Flying highlight — 15-look catalog cycled from Settings, scoped styles per section (`DpadHighlightTheme`) | `lib/highlight_styles.dart` + settings |
+| Blocked-move readout (`Dpad.onBlockedMove`) | `lib/sections/settings_section.dart` |
+| Centered reveal toggle (`scrollAlignment: DpadRevealAlignment.center`) | `lib/sections/settings_section.dart` |
+| Freezing navigation (`Dpad.enabled`, the playback-overlay pattern) | `lib/sections/settings_section.dart` |
+| Right-to-left mirroring (RTL traversal + layout) | `lib/sections/settings_section.dart` |
+| WASD movement via `DpadKeySet` remap | `lib/sections/settings_section.dart` |
 | Long-select context sheet (`onLongSelect`) | `lib/widgets/poster_card.dart` |
 | Fully custom presentation with pressed state (`builder`) | `lib/widgets/tv_button.dart` |
 | Wrap-around episode carousel (`horizontalEdge: wrap`) | `lib/pages/detail_page.dart` |
@@ -45,7 +51,13 @@ A complete, remote-drivable TV streaming UI built with the
 | H / L / S | Jump to For you / Library / Search |
 | I | Toggle the focus inspector |
 
+Note: with WASD movement enabled, the `S` jump-to-Search shortcut stands
+down (see `main.dart`) so the key can move focus down.
+
 ## Running
+
+Building in this repository needs Flutter 3.32+ (the dev tooling only
+resolves there — the package itself supports 3.19+).
 
 ```bash
 cd example

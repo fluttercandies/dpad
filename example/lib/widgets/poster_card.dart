@@ -35,6 +35,10 @@ class PosterCard extends StatelessWidget {
       child: DpadFocusable(
         effects: effects,
         debugLabel: 'poster:${movie.title}',
+        // No semanticLabel here on purpose: the title Text below already
+        // announces itself, and an explicit label would be read *ahead* of
+        // it — set semanticLabel only when the visuals alone carry the
+        // meaning (an image tile with no text).
         onSelect: () => DetailPage.open(context, movie),
         onLongSelect: () => _showOptions(context),
         child: SizedBox(
@@ -185,7 +189,8 @@ class PosterCard extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    '${movie.year} · ${movie.rating} · ${movie.duration}',
+                                    '${movie.year} · ${movie.rating} '
+                                    '· ${movie.duration}',
                                     style: TextStyle(
                                       color: Colors.white.withAlpha(158),
                                       fontSize: 12.5,

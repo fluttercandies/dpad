@@ -56,8 +56,9 @@ class _SearchSectionState extends State<SearchSection> {
           ),
           const SizedBox(height: 8),
           const Text(
-            'While typing, arrows move the caret — at the edges of the text '
-            '(and with ↓) they leave the field. You are never trapped.',
+            'While typing, arrows move the caret — at either end of the '
+            'text they leave the field, and in this single-line field so do '
+            '↑ and ↓. You are never trapped.',
             style: TextStyle(color: Colors.white38, fontSize: 12),
           ),
           const SizedBox(height: 16),

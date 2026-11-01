@@ -32,12 +32,9 @@ const List<String> _continueWatching = <String>[
 /// memory) and returns the real app root. `cockpitTestWidgets` remounts the
 /// app for each test; this callback is the whole isolation story.
 Widget freshApp() {
-  activeSection.value = 0;
-  showFocusInspector.value = false;
+  resetAppState();
+  // The harness starts quiet; widget tests keep the launch default.
   clickSounds.value = false;
-  rtlLayout.value = false;
-  wasdKeys.value = false;
-  dpadEnabled.value = true;
   DpadRegionState.clearPersistentMemory();
   return const DpadTvApp();
 }
@@ -495,7 +492,7 @@ void main() {
       await tapKey(cockpit, 'ArrowDown');
       expect(focusedDebugLabel, 'poster:Neon Tide');
 
-      // Hold the select key past the 500ms long-select threshold.
+      // Hold the select key past the themed 650ms long-select threshold.
       await cockpit.keyDown('Enter', allowUnhandled: true);
       await cockpit.flutter.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 900)),
@@ -659,7 +656,7 @@ void main() {
     'Scale + border',
     'Glow',
     'Elevation',
-    'Spotlight',
+    'Dim others',
     'Tint',
     'Custom',
   ];

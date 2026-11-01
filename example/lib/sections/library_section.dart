@@ -65,6 +65,7 @@ class _AvatarTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return DpadFocusable(
       debugLabel: 'avatar:${movie.title}',
+      semanticLabel: movie.title,
       onSelect: () {},
       child: DecoratedBox(
         decoration: BoxDecoration(

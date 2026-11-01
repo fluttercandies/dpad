@@ -1,10 +1,11 @@
+import 'dart:math' as math;
+
 import 'package:dpad/dpad.dart';
 import 'package:dpad_example/app_state.dart';
 import 'package:dpad_example/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'dart:math' as math;
 
 /// The rect of whatever currently holds primary focus, in logical pixels.
 Rect focusedRect() {
@@ -42,12 +43,7 @@ bool switchValueFor(WidgetTester tester, String title) {
 
 void main() {
   setUp(() {
-    activeSection.value = 0;
-    showFocusInspector.value = false;
-    rtlLayout.value = false;
-    wasdKeys.value = false;
-    dpadEnabled.value = true;
-    highlightStyle.value = 1;
+    resetAppState();
     // Region memory is static and would otherwise leak between tests.
     DpadRegionState.clearPersistentMemory();
   });
@@ -182,7 +178,7 @@ void main() {
           .resolve(TextDirection.ltr)
           .topLeft
           .x,
-      closeTo(start.width * 1.08 / 2, 0.5),
+      closeTo(start.width * const DpadScaleEffect().scale / 2, 0.5),
       reason: 'the ring lands as a circle on the avatar grid',
     );
 
@@ -253,8 +249,9 @@ void main() {
     await tester.pumpWidget(const DpadTvApp());
     await tester.pumpAndSettle();
 
-    // Five downs reach the RTL toggle (the disabled parental row is
-    // skipped): subtitles, volume, sounds, inspector, RTL.
+    // Six downs reach the RTL toggle (the disabled parental row is
+    // skipped): subtitles, volume, click sounds, highlight look,
+    // inspector, RTL.
     activeSection.value = 3;
     await tester.pumpAndSettle();
     for (int i = 0; i < 6; i++) {
@@ -301,7 +298,8 @@ void main() {
     await tester.pumpAndSettle();
 
     // Autoplay autofocuses and the disabled parental row is skipped: eight
-    // downs reach the last toggle row.
+    // downs reach the D-pad enabled row (the centered-reveal toggle and the
+    // blocked-moves readout follow it).
     for (int i = 0; i < 8; i++) {
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
       await tester.pumpAndSettle();
